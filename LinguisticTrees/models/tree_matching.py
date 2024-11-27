@@ -1,5 +1,6 @@
 #models/tree_matching.py
-from GMN.graphmatchingnetwork import GraphMatchingNet
+from ...GMN.graphmatchingnetwork import GraphMatchingNet  # Use relative import
+from ...GMN.graphembeddingnetwork import GraphEncoder, GraphAggregator
 from .tree_encoder import TreeEncoder
 
 class TreeMatchingNet(GraphMatchingNet):
@@ -12,14 +13,20 @@ class TreeMatchingNet(GraphMatchingNet):
             hidden_dim=config.model.node_hidden_dim
         )
         
+        aggregator = GraphAggregator(
+            node_hidden_sizes=[config.model.node_hidden_dim],
+            graph_transform_sizes=[config.model.node_hidden_dim],
+            gated=True
+        )
+        
         super().__init__(
             encoder=encoder,
-            aggregator=self._build_aggregator(config),
+            aggregator=aggregator,
             node_state_dim=config.model.node_hidden_dim,
             edge_state_dim=config.model.edge_hidden_dim,
             n_prop_layers=config.model.n_prop_layers
         )
-        
+
     def _build_aggregator(self, config):
         """Build tree-aware aggregator"""
         return GraphAggregator(

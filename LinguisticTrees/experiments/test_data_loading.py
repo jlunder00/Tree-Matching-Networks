@@ -9,13 +9,7 @@ logger = logging.getLogger(__name__)
 def test_data_loading():
     """Test data loading with memory monitoring"""
     
-    # Configure data paths - adjust this path to match your setup
-    data_root = '/home/jlunder/research/data/processed_data'  # Change this to your actual path
-    
-    logger.info(f"Using data root: {data_root}")
-    
     data_config = TreeDataConfig(
-        data_root=data_root,
         spacy_variant='trf'  # Change if using different model
     )
     
@@ -25,7 +19,8 @@ def test_data_loading():
     # Create dataset using dev data first
     dataset = MultiPartitionTreeDataset(
         data_config.dev_path,  # Start with dev data
-        config=data_config
+        config=data_config,
+        num_workers=4
     )
     
     # Test batch iteration

@@ -1,5 +1,9 @@
-from graphembeddingnetwork import GraphEmbeddingNet
-from graphembeddingnetwork import GraphPropLayer
+try:
+    from graphembeddingnetwork import GraphEmbeddingNet
+    from graphembeddingnetwork import GraphPropLayer
+except:
+    from .graphembeddingnetwork import GraphEmbeddingNet
+    from .graphembeddingnetwork import GraphPropLayer
 import torch
 
 

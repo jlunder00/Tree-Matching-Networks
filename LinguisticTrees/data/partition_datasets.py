@@ -9,111 +9,74 @@ from .tree_dataset import TreeMatchingDataset
 from .loading_patterns import PartitionLoader, PartitionLoadingPattern
 from .data_utils import convert_tree_to_graph_data, GraphData
 from ..utils.memory_utils import MemoryMonitor
+from torch.utils.data import DataLoader
+import multiprocessing as mp
+from functools import partial
 
 logger = logging.getLogger(__name__)
 
+
 class MultiPartitionTreeDataset(TreeMatchingDataset):
-    """Dataset that handles multiple partition files of tree data"""
-    
     def __init__(self, 
                  data_dir: str, 
                  config,
                  loading_pattern: str = "sequential",
-                 use_worker_sharding: bool = False):
-        """Initialize dataset
-        
-        Args:
-            data_dir: Directory containing partition files
-            config: Dataset configuration
-            loading_pattern: One of "sequential", "random", "round_robin", "weighted"
-            use_worker_sharding: Whether to shard partitions across workers
-        """
-        super().__init__()
+                 num_workers: int = None,
+                 prefetch_factor: int = 2):
+        super().__init__(config)
         self.data_dir = Path(data_dir)
-        self.config = config
-        self.use_worker_sharding = use_worker_sharding
+        self.num_workers = num_workers or mp.cpu_count() - 1
+        self.prefetch_factor = prefetch_factor
         
-        # Convert pattern string to enum
-        try:
-            self.loading_pattern = PartitionLoadingPattern(loading_pattern)
-        except ValueError:
-            raise ValueError(f"Invalid loading pattern: {loading_pattern}")
+        # Initialize partition loader with multiprocessing
+        self.partition_loader = DataLoader(
+            self._get_partition_paths(),
+            batch_size=None,  # Load one partition at a time
+            num_workers=self.num_workers,
+            prefetch_factor=self.prefetch_factor,
+            persistent_workers=True
+        )
         
-        # Get all partition files
-        self.partition_files = sorted(
+    def _get_partition_paths(self):
+        """Get sorted list of partition files"""
+        return sorted(
             self.data_dir.glob("part_*.json"),
             key=lambda x: int(x.stem.split('_')[1])
         )
         
-        if not self.partition_files:
-            raise ValueError(f"No partition files found in {data_dir}")
+    @staticmethod
+    def _load_partition(file_path):
+        """Worker function to load partition"""
+        with open(file_path) as f:
+            return json.load(f)
             
-        # Track memory usage during initialization
-        mem_stats = MemoryMonitor.log_memory(prefix='Dataset Init: ')
-        logger.info(f"Found {len(self.partition_files)} partition files")
-        
-        # Read partition sizes
-        self.partition_sizes = {}
-        total_examples = 0
-        for pf in self.partition_files:
-            with open(pf) as f:
-                data = json.load(f)
-                size = len(data['labels'])
-                self.partition_sizes[pf] = size
-                total_examples += size
-                
-        logger.info(f"Total examples across partitions: {total_examples}")
-        
-        # Create partition loader
-        self.partition_loader = PartitionLoader(
-            self.partition_files,
-            self.loading_pattern,
-            self.partition_sizes
-        )
-
-    def pairs(self, batch_size: int) -> Iterator[Tuple[GraphData, torch.Tensor]]:
-        """Generate batches of tree pairs"""
-        worker_info = torch.utils.data.get_worker_info()
-        
-        while True:  # Infinite iterator for training
+    def pairs(self, batch_size: int):
+        """Generate batches using multiprocessing"""
+        # Create process pool
+        with mp.Pool(self.num_workers) as pool:
             for partition_file in self.partition_loader:
-                try:
-                    # Load partition
-                    with open(partition_file) as f:
-                        partition_data = json.load(f)
-                        
-                    # Monitor memory
-                    MemoryMonitor.log_memory(
-                        prefix=f'Loading {partition_file.name}: '
-                    )
+                # Load partition in parallel
+                partition_data = pool.apply_async(
+                    self._load_partition,
+                    (partition_file,)
+                ).get()
+                
+                # Create batches
+                pairs = partition_data['graph_pairs']
+                labels = torch.tensor(partition_data['labels'])
+                
+                for start_idx in range(0, len(labels), batch_size):
+                    end_idx = min(start_idx + batch_size, len(labels))
+                    batch_pairs = pairs[start_idx:end_idx]
+                    batch_labels = labels[start_idx:end_idx]
                     
-                    pairs = partition_data['graph_pairs']
-                    labels = torch.tensor(partition_data['labels'])
+                    # Convert batch to GraphData in parallel
+                    graph_data = pool.apply_async(
+                        convert_tree_to_graph_data,
+                        (batch_pairs, self.config)
+                    ).get()
                     
-                    # Create batches
-                    indices = list(range(0, len(labels), batch_size))
-                    for start_idx in indices:
-                        end_idx = min(start_idx + batch_size, len(labels))
-                        batch_pairs = [pairs[i] for i in range(start_idx, end_idx)]
-                        batch_labels = labels[start_idx:end_idx]
-                        
-                        graph_data = convert_tree_to_graph_data(
-                            batch_pairs, 
-                            self.config
-                        )
-                        yield graph_data, batch_labels
-                        
-                except Exception as e:
-                    logger.error(f"Error processing partition {partition_file}: {e}")
-                    continue
-                finally:
-                    # Clear memory after processing partition
-                    if 'partition_data' in locals():
-                        del partition_data
-                    MemoryMonitor.clear_memory()
-
-    def __len__(self) -> int:
-        return sum(self.partition_sizes.values())
+                    yield graph_data, batch_labels
 
 
 class DynamicPartitionTreeDataset(TreeMatchingDataset):

@@ -24,7 +24,8 @@ def test_loading_patterns():
         dataset = MultiPartitionTreeDataset(
             data_config.dev_path,
             config=data_config,
-            loading_pattern=pattern
+            loading_pattern=pattern,
+            num_workers=12
         )
         
         # Track partition order
@@ -56,7 +57,8 @@ def test_memory_clearing():
     dataset = MultiPartitionTreeDataset(
         data_config.dev_path,
         config=data_config,
-        loading_pattern='sequential'
+        loading_pattern='sequential',
+        num_workers=12
     )
     
     logger.info("\nTesting memory clearing:")
