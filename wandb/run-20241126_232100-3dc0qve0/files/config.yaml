@@ -1,0 +1,130 @@
+_wandb:
+    value:
+        cli_version: 0.18.7
+        m: []
+        python_version: 3.12.7
+        t:
+            "1":
+                - 1
+                - 5
+                - 53
+                - 55
+            "2":
+                - 1
+                - 5
+                - 53
+                - 55
+            "3":
+                - 15
+                - 16
+                - 23
+                - 55
+            "4": 3.12.7
+            "5": 0.18.7
+            "8":
+                - 5
+            "12": 0.18.7
+            "13": linux-x86_64
+aggregator:
+    value:
+        aggregation_type: sum
+        gated: true
+        graph_transform_sizes:
+            - 128
+        input_size:
+            - 32
+        node_hidden_sizes:
+            - 128
+data:
+    value:
+        batch_size: 32
+        loading_pattern: sequential
+        max_partitions_in_memory: 2
+        spacy_variant: trf
+        train_path: data/processed_data/dev/final_dataset.json
+        use_worker_sharding: false
+device:
+    value: cuda
+encoder:
+    value:
+        edge_hidden_sizes:
+            - 16
+        node_feature_dim: 1
+        node_hidden_sizes:
+            - 32
+evaluation:
+    value:
+        batch_size: 20
+graph_embedding_net:
+    value:
+        edge_hidden_sizes:
+            - 64
+            - 64
+        edge_net_init_scale: 0.1
+        edge_state_dim: 16
+        layer_norm: false
+        n_prop_layers: 5
+        node_hidden_sizes:
+            - 64
+        node_state_dim: 32
+        node_update_type: gru
+        prop_type: matching
+        reverse_dir_param_different: false
+        share_prop_params: true
+        use_reverse_direction: true
+graph_matching_net:
+    value:
+        edge_hidden_sizes:
+            - 64
+            - 64
+        edge_net_init_scale: 0.1
+        edge_state_dim: 16
+        layer_norm: false
+        n_prop_layers: 5
+        node_hidden_sizes:
+            - 64
+        node_state_dim: 32
+        node_update_type: gru
+        prop_type: matching
+        reverse_dir_param_different: false
+        share_prop_params: true
+        similarity: dotproduct
+        use_reverse_direction: true
+model:
+    value:
+        dropout: 0.1
+        edge_feature_dim: 64
+        edge_hidden_dim: 128
+        n_prop_layers: 5
+        name: tree_matching
+        node_feature_dim: 768
+        node_hidden_dim: 256
+model_type:
+    value: matching
+seed:
+    value: 8
+train:
+    value:
+        learning_rate: 0.0001
+        n_epochs: 2
+        patience: 10
+        warmup_steps: 1000
+        weight_decay: 1e-05
+training:
+    value:
+        batch_size: 20
+        clip_value: 10
+        eval_after: 10
+        graph_vec_regularizer_weight: 1e-06
+        learning_rate: 0.0001
+        loss: margin
+        margin: 1
+        mode: pair
+        n_training_steps: 500000
+        print_after: 100
+wandb:
+    value:
+        log_interval: 100
+        project: tree-matching
+        tags:
+            - linguistic-trees

@@ -1,0 +1,7 @@
+Metadata-Version: 2.1
+Name: tree_matching_networks
+Version: 0.1.0
+Summary: Graph Matching Network implementation and Applications
+Author: toast
+License-File: LICENSE
+Requires-Dist: psutil

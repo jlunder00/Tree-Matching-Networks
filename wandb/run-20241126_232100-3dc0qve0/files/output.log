@@ -1,0 +1,12 @@
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/jlunder/research/Tree-Matching-Networks/Tree_Matching_Networks/LinguisticTrees/experiments/test_training.py", line 51, in <module>
+    test_training()
+  File "/home/jlunder/research/Tree-Matching-Networks/Tree_Matching_Networks/LinguisticTrees/experiments/test_training.py", line 28, in test_training
+    model = TreeMatchingNet(config).to(config.device)
+            ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jlunder/research/Tree-Matching-Networks/Tree_Matching_Networks/LinguisticTrees/models/tree_matching.py", line 11, in __init__
+    node_feature_dim=config.model.node_feature_dim,
+                     ^^^^^^^^^^^^
+AttributeError: 'dict' object has no attribute 'model'
