@@ -1,21 +1,73 @@
 #training/train.py
+from ..data.data_utils import GraphData
+from tqdm import tqdm
 import wandb
-from ...GMN.evaluation import compute_similarity, auc
+from .loss import TreeMatchingLoss
 import torch
+import logging
+import time
+from ..utils.memory_utils import MemoryMonitor
 
-def train_epoch(model, train_loader, optimizer, config):
-    """Train for one epoch"""
+logger = logging.getLogger(__name__)
+
+def train_epoch(model, dataset, optimizer, config, epoch):
+    """Train for one epoch with progress tracking"""
     model.train()
-    total_loss = 0
+    device = torch.device(config['device'])
     
-    for batch_idx, (graphs, labels) in enumerate(train_loader):
-        # Move to device
-        graphs = graphs.to(config.device)
-        labels = labels.to(config.device)
+    # Initialize metrics
+    metrics = {
+        'loss': 0.0,
+        'accuracy': 0.0,
+        'batch_time': 0.0,
+        'data_time': 0.0
+    }
+    
+    loss_fn = TreeMatchingLoss(
+        task_type=config['model']['task_type'],
+        **config['model'].get('loss_params', {})
+    ).to(device)
+    
+    # Get total batches for progress bar
+    n_samples = len(dataset) if hasattr(dataset, '__len__') else None
+    n_batches = n_samples // config['data']['batch_size'] if n_samples else None
+    
+    # Create progress bar
+    pbar = tqdm(
+        enumerate(dataset.pairs(config['data']['batch_size'])),
+        total=n_batches,
+        desc=f'Training Epoch {epoch}',
+        leave=False
+    )
+    
+    # Monitor memory at start
+    MemoryMonitor.log_memory(prefix='Training start: ')
+    
+    start_time = time.time()
+    data_time = 0
+    
+    all_predictions = []
+    all_labels = []
+    
+    for batch_idx, (graphs, labels) in pbar:
+        data_time = time.time() - start_time
+        
+        # Zero gradients
+        optimizer.zero_grad()
+        
+        # Move data to device
+        graphs = GraphData(
+            node_features=graphs.node_features.to(device),
+            edge_features=graphs.edge_features.to(device),
+            from_idx=graphs.from_idx.to(device),
+            to_idx=graphs.to_idx.to(device),
+            graph_idx=graphs.graph_idx.to(device),
+            n_graphs=graphs.n_graphs
+        )
+        labels = labels.to(device)
         
         # Forward pass
-        optimizer.zero_grad()
-        outputs = model(
+        graph_vectors = model(
             graphs.node_features,
             graphs.edge_features,
             graphs.from_idx,
@@ -24,20 +76,71 @@ def train_epoch(model, train_loader, optimizer, config):
             graphs.n_graphs
         )
         
-        # Compute loss
-        loss = compute_tree_matching_loss(outputs, labels, config)
+        # Split vectors and compute loss
+        x, y = graph_vectors[::2], graph_vectors[1::2]
+        loss, predictions, accuracy = loss_fn(x, y, labels)
         
         # Backward pass
         loss.backward()
+        
+        # Gradient clipping
+        if 'clip_value' in config['train']:
+            torch.nn.utils.clip_grad_norm_(
+                model.parameters(), 
+                config['train']['clip_value']
+            )
+            
         optimizer.step()
         
-        total_loss += loss.item()
+        # Store predictions for confusion matrix
+        all_predictions.append(predictions.cpu())
+        all_labels.append(labels.cpu())
         
-        # Log to WandB
-        if batch_idx % config.log_interval == 0:
+        # Update metrics
+        batch_time = time.time() - start_time
+        metrics['loss'] += loss.item()
+        metrics['accuracy'] += accuracy.item()
+        metrics['batch_time'] += batch_time
+        metrics['data_time'] += data_time
+        
+        # Update progress bar
+        pbar.set_postfix({
+            'loss': f"{loss.item():.4f}",
+            'acc': f"{accuracy.item():.4f}",
+            'batch_time': f"{batch_time:.3f}s",
+            'data_time': f"{data_time:.3f}s"
+        })
+        
+        # Log to wandb periodically
+        if batch_idx % config['wandb']['log_interval'] == 0:
             wandb.log({
-                'train_loss': loss.item(),
-                'step': batch_idx
+                'batch/loss': loss.item(),
+                'batch/accuracy': accuracy.item(),
+                'batch/learning_rate': optimizer.param_groups[0]['lr'],
+                'batch/data_time': data_time,
+                'batch/batch_time': batch_time,
+                'batch': batch_idx + epoch * n_batches if n_batches else batch_idx,
             })
+        
+        start_time = time.time()
     
-    return total_loss / len(train_loader)
+    # Compute epoch metrics
+    n_batches = batch_idx + 1
+    metrics = {k: v / n_batches for k, v in metrics.items()}
+    
+    # For entailment task, add confusion matrix
+    if config['model']['task_type'] == 'entailment' and wandb.run is not None:
+        all_predictions = torch.cat(all_predictions)
+        all_labels = torch.cat(all_labels)
+        wandb.log({
+            'train_confusion_matrix': wandb.plot.confusion_matrix(
+                preds=all_predictions.numpy(),
+                y_true=all_labels.numpy(),
+                class_names=['Contradiction', 'Neutral', 'Entailment']
+            )
+        })
+    
+    # Monitor memory at end
+    MemoryMonitor.log_memory(prefix='Training end: ')
+    
+    return metrics

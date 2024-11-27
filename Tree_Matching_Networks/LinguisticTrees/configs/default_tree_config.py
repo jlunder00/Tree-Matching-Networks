@@ -1,3 +1,4 @@
+#configs/default_tree_config.py
 from ...GMN.configure import get_default_config
 import yaml
 from pathlib import Path
@@ -11,9 +12,13 @@ def get_tree_config(config_path=None):
     # Add tree-specific defaults
     tree_config = {
         'model': {
+            'task_type': 'entailment', #or 'similarity'
+            'loss_params': {
+                'thresholds': [-0.3, 0.3] #for entailment bucketing
+            },
             'name': 'tree_matching',
-            'node_feature_dim': 768,  # BERT embedding size
-            'edge_feature_dim': 64,   # Dependency feature size
+            'node_feature_dim': 804,  # BERT embedding size
+            'edge_feature_dim': 22,   # Dependency feature size
             'node_hidden_dim': 256,
             'edge_hidden_dim': 128,
             'n_prop_layers': 5,

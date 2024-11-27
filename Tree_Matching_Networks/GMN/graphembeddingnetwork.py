@@ -118,7 +118,10 @@ def graph_prop_once(node_states,
     edge_inputs = torch.cat(edge_inputs, dim=-1)
     messages = message_net(edge_inputs)
 
-    from segment import unsorted_segment_sum
+    try:
+        from segment import unsorted_segment_sum
+    except ImportError:
+        from .segment import unsorted_segment_sum
     tensor = unsorted_segment_sum(messages, to_idx, node_states.shape[0])
     return tensor
 

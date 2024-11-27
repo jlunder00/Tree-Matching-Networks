@@ -1,3 +1,4 @@
+#experiments/test_training.py
 import wandb
 import torch
 from pathlib import Path
@@ -25,7 +26,7 @@ def test_training():
     dataset = MultiPartitionTreeDataset(config['data']['train_path'], config, num_workers=12)
     
     # Create model and optimizer
-    model = TreeMatchingNet(config).to(config.device)
+    model = TreeMatchingNet(config).to(config['device'])
     optimizer = torch.optim.Adam(
         model.parameters(),
         lr=config['train']['learning_rate'],
