@@ -129,16 +129,16 @@ def train_epoch(model, dataset, optimizer, config, epoch):
     metrics = {k: v / n_batches for k, v in metrics.items()}
     
     # For entailment task, add confusion matrix
-    if config['model']['task_type'] == 'entailment' and wandb.run is not None:
-        all_predictions = torch.cat(all_predictions)
-        all_labels = torch.cat(all_labels)
-        wandb.log({
-            'train_confusion_matrix': wandb.plot.confusion_matrix(
-                preds=all_predictions.numpy(),
-                y_true=all_labels.numpy(),
-                class_names=['Contradiction', 'Neutral', 'Entailment']
-            )
-        })
+    # if config['model']['task_type'] == 'entailment' and wandb.run is not None:
+    #     all_predictions = torch.cat(all_predictions)
+    #     all_labels = torch.cat(all_labels)
+    #     wandb.log({
+    #         'train_confusion_matrix': wandb.plot.confusion_matrix(
+    #             preds=all_predictions.numpy(),
+    #             y_true=all_labels.numpy(),
+    #             class_names=['Contradiction', 'Neutral', 'Entailment']
+    #         )
+    #     })
     
     # Monitor memory at end
     MemoryMonitor.log_memory(prefix='Training end: ')
