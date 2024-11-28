@@ -14,8 +14,8 @@ DATA:
   val_path: 'data/snli_val.json'
   test_path: 'data/snli_test.json'
   max_tree_size: 100
-  batch_size: 32
-  num_workers: 4
+  batch_size: 512
+  num_workers: 8
 
 TRAIN:
   learning_rate: 0.0001
