@@ -10,6 +10,8 @@ class TreeDataConfig:
     # Root data directory - should be absolute path to processed_data directory
     data_root: str = '/home/jlunder/research/Tree-Matching-Networks/data/processed_data'
     
+    dataset_type: Literal['snli', 'semeval'] = 
+
     # SpaCy model variant (trf, lg, sm)
     spacy_variant: Literal['trf', 'lg', 'sm'] = 'trf'
     
