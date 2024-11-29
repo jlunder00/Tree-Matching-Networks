@@ -2,6 +2,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from .metrics import TreeMatchingMetrics
 
 
 class TreeMatchingLoss(nn.Module):
@@ -55,15 +56,17 @@ class TreeMatchingLoss(nn.Module):
             
             # Get predictions
             predictions = torch.argmax(logits, dim=1) - 1  # Shift back to -1,0,1
-            accuracy = (predictions == labels).float().mean()
+            # accuracy = (predictions == labels).float().mean()
+            metrics = TreeMatchingMetrics.compute_task_metrics(predictions, labels, 'entailment')
             
-            return loss, predictions, accuracy
+            return loss, predictions, metrics
             
         else:  # similarity task
             # For similarity task, directly optimize MSE between similarities
             loss = F.mse_loss(similarity_scores, labels)
-            accuracy = 1.0 - (similarity_scores - labels).abs().mean()
-            return loss, similarity_scores, accuracy
+            # accuracy = 1.0 - (similarity_scores - labels).abs().mean()
+            metrics = TreeMatchingMetrics.compute_task_metrics(similarity_scores, labels, 'similarity')
+            return loss, similarity_scores, metrics
 
 
 

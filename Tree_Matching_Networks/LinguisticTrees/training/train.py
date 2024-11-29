@@ -38,7 +38,8 @@ def train_step(model, graphs, labels, optimizer, loss_fn, config):
         
         # Split vectors and compute loss
         x, y = graph_vectors[::2], graph_vectors[1::2]
-        loss, predictions, accuracy = loss_fn(x, y, labels)
+        # loss, predictions, accuracy = loss_fn(x, y, labels)
+        loss, predictions, metrics = loss_fn(x, y, labels)
         
         # Scale loss for gradient accumulation
         loss = loss / config['train']['gradient_accumulation_steps']
@@ -53,7 +54,8 @@ def train_step(model, graphs, labels, optimizer, loss_fn, config):
         del y
         torch.cuda.empty_cache()
         
-        return loss.item() * config['train']['gradient_accumulation_steps'], predictions, accuracy
+        # return loss.item() * config['train']['gradient_accumulation_steps'], predictions, accuracy
+        return loss.item() * config['train']['gradient_accumulation_steps'], predictions, metrics
         
     except RuntimeError as e:
         if "out of memory" in str(e):
@@ -67,14 +69,26 @@ def train_epoch(model, dataset, optimizer, config, epoch):
     """Train for one epoch with memory management"""
     model.train()
     device = config['device']
+    task_type = config['model']['task_type']
     
-    # Initialize metrics
-    metrics = {
-        'loss': 0.0,
-        'accuracy': 0.0,
-        'batch_time': 0.0,
-        'data_time': 0.0
-    }
+    # Initialize metrics based on task
+    if task_type == 'similarity':
+        metrics = {
+            'loss': 0.0,
+            'correlation': 0.0,
+            'spearman': 0.0,
+            'mse': 0.0,
+            'batch_time': 0.0,
+        }
+    else:
+        metrics = {
+            'loss': 0.0,
+            'accuracy': 0.0,
+            'precision': 0.0,
+            'recall': 0.0,
+            'f1': 0.0,
+            'batch_time': 0.0
+        }
     
     loss_fn = TreeMatchingLoss(
         task_type=config['model']['task_type'],
@@ -104,10 +118,13 @@ def train_epoch(model, dataset, optimizer, config, epoch):
     for batch_idx, (graphs, labels) in pbar:
         try:
             # Training step
-            loss, predictions, accuracy = train_step(
+            loss, predictions, batch_metrics = train_step(
                 model, graphs, labels, optimizer, loss_fn, config
             )
-            
+            # loss, predictions, accuracy = train_step(
+            #     model, graphs, labels, optimizer, loss_fn, config
+            # )
+            # 
             # Step optimizer on schedule
             if (batch_idx + 1) % config['train']['gradient_accumulation_steps'] == 0:
                 # Clip gradients
@@ -123,34 +140,54 @@ def train_epoch(model, dataset, optimizer, config, epoch):
             all_labels.append(labels.cpu())
             
             # Update metrics
-            batch_time = time.time() - start_time
             metrics['loss'] += loss
-            metrics['accuracy'] += accuracy.item()
-            metrics['batch_time'] += batch_time
+            metrics['batch_time'] += time.time() - start_time
+            for k, v in batch_metrics.items():
+                if k in metrics:
+                    metrics[k] += v
             
+            progress_metrics = {
+                'loss': f'{loss:.4f}',
+                'time': f'{metrics['batch_time']:.3f}s'
+            }
+            if task_type == 'similarity':
+                progress_metrics['corr'] = f"{batch_metrics['correlation']:.4f}"
+            else:
+                progress_metrics['acc'] = f"{batch_metrics['accuracy']:.4f}"
             # Update progress bar
-            pbar.set_postfix({
-                'loss': f"{loss:.4f}",
-                'acc': f"{accuracy.item():.4f}",
-                'time': f"{batch_time:.3f}s"
-            })
+            # pbar.set_postfix({
+            #     'loss': f"{loss:.4f}",
+            #     'acc': f"{accuracy.item():.4f}",
+            #     'time': f"{batch_time:.3f}s"
+            # })
+            pbar.set_postfix(progress_metrics)
             
             # Periodic cleanup
             if batch_idx % config['train']['cleanup_interval'] == 0:
                 MemoryMonitor.clear_memory()
+
                 
             # Log to wandb
             if batch_idx % config['wandb']['log_interval'] == 0:
                 mem_stats = MemoryMonitor.get_memory_usage()
-                wandb.log({
-                    'batch/loss': loss,
-                    'batch/accuracy': accuracy.item(),
-                    'batch/learning_rate': optimizer.param_groups[0]['lr'],
-                    'batch/time': batch_time,
+                wandb_log_metrics ={
                     'memory/ram_used_gb': mem_stats['ram_used_gb'],
                     'memory/gpu_used_gb': mem_stats['gpu_used_gb'],
+                    'batch/time': metrics['batch_time'],
                     'batch': batch_idx + epoch * n_batches if n_batches else batch_idx
-                })
+                }
+                for k, v in metrics.items():
+                    wandb_log_metrics['batch/'+k] = v
+                # wandb.log({
+                #     'batch/loss': loss,
+                #     'batch/accuracy': accuracy.item(),
+                #     'batch/learning_rate': optimizer.param_groups[0]['lr'],
+                #     'batch/time': batch_time,
+                #     'memory/ram_used_gb': mem_stats['ram_used_gb'],
+                #     'memory/gpu_used_gb': mem_stats['gpu_used_gb'],
+                #     'batch': batch_idx + epoch * n_batches if n_batches else batch_idx
+                # })
+                wandb.log(wandb_log_metrics)
                 
             start_time = time.time()
             
