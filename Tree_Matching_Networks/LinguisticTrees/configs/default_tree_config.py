@@ -22,22 +22,37 @@ def get_tree_config(dataset_type='snli', task_type='entailment', config_path=Non
             'node_hidden_dim': 256,
             'edge_hidden_dim': 128,
             'n_prop_layers': 5,
-            'dropout': 0.1,
+            'dropout': 0.2,
+            'layer_norm': True,
+            'weight_norm': True
         },
         'data': {
             'dataset_type': dataset_type,
             'task_type': task_type,
             'spacy_variant': 'trf',
             'loading_pattern': 'sequential',
-            'batch_size': 1024,
+            'batch_size': 128,
             'max_nodes_per_batch': 1000,
             'max_edges_per_batch': 2000,
-            'num_workers': 8,
+            'num_workers': 2,
             'prefetch_factor': 2
         },
         'train': {
-            'learning_rate': 1e-4,
+            'learning_rate': 5e-4,
+            'min_learning_rate': 1e-6,
             'weight_decay': 1e-5,
+            'scheduler': {
+                'cosine': {
+                    'T_0': 5,
+                    'T_mult': 2,
+                    'eta_min': 1e-6
+                },
+                'plateau': {
+                    'factor': 0.5,
+                    'patience': 3,
+                    'min_lr': 1e-6
+                }
+            },
             'n_epochs': 100,
             'patience': 10,
             'warmup_steps': 1000,

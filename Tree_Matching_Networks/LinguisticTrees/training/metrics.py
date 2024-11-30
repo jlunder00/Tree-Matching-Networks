@@ -47,9 +47,10 @@ class TreeMatchingMetrics:
     @staticmethod
     def compute_similarity_metrics(predictions, labels):
         """Compute metrics specific to similarity task"""
-        predictions = predictions.cpu().numpy()
+        predictions = predictions.detach().cpu().numpy()
         labels = labels.cpu().numpy()
         
+        from scipy.stats import pearsonr, spearmanr
         # Pearson correlation
         pearson_corr, _ = pearsonr(predictions, labels)
         
@@ -60,9 +61,9 @@ class TreeMatchingMetrics:
         mse = np.mean((predictions - labels) ** 2)
         
         return {
-            'correlation': pearson_corr,
-            'spearman': spearman_corr,
-            'mse': mse
+            'correlation': float(pearson_corr),
+            'spearman': float(spearman_corr),
+            'mse': float(mse)
         }
 
     @staticmethod
@@ -86,7 +87,7 @@ class TreeMatchingMetrics:
             }
 
     @classmethod
-    def compute_all_metrics(cls, predictions, labels):
+    def compute_all_metrics(cls, predictions, labels, task_type='entailment'):
         """Compute all metrics"""
         if task_type == 'similarity':
             return cls.compute_similarity_metrics(predictions, labels)

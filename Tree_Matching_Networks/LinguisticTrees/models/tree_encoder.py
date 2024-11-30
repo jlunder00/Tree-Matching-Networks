@@ -6,7 +6,7 @@ from ...GMN.graphembeddingnetwork import GraphEncoder
 
 #models/tree_encoder.py
 class TreeEncoder(GraphEncoder):
-    def __init__(self, node_feature_dim, edge_feature_dim, hidden_dim):
+    def __init__(self, node_feature_dim, edge_feature_dim, hidden_dim, dropout=0.1):
         # Call parent's __init__ first
         super().__init__(
             node_feature_dim=hidden_dim,  # Using transformed dimension
@@ -25,14 +25,22 @@ class TreeEncoder(GraphEncoder):
             nn.Linear(node_feature_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(dropout),
+            # nn.Linear(hidden_dim, hidden_dim),  # Add extra layer
+            # nn.LayerNorm(hidden_dim),
+            # nn.ReLU(),
+            # nn.Dropout(dropout)
         )
         
         self.edge_transform = nn.Sequential(
             nn.Linear(edge_feature_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(dropout),
+            # nn.Linear(hidden_dim, hidden_dim),  # Add extra layer
+            # nn.LayerNorm(hidden_dim),
+            # nn.ReLU(),
+            # nn.Dropout(dropout)
         )
 
     def forward(self, node_features, edge_features=None):

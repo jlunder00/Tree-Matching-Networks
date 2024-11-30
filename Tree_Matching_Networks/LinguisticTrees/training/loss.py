@@ -57,7 +57,8 @@ class TreeMatchingLoss(nn.Module):
             # Get predictions
             predictions = torch.argmax(logits, dim=1) - 1  # Shift back to -1,0,1
             # accuracy = (predictions == labels).float().mean()
-            metrics = TreeMatchingMetrics.compute_task_metrics(predictions, labels, 'entailment')
+            with torch.no_grad():
+                metrics = TreeMatchingMetrics.compute_task_metrics(predictions, labels, 'entailment')
             
             return loss, predictions, metrics
             
@@ -65,7 +66,8 @@ class TreeMatchingLoss(nn.Module):
             # For similarity task, directly optimize MSE between similarities
             loss = F.mse_loss(similarity_scores, labels)
             # accuracy = 1.0 - (similarity_scores - labels).abs().mean()
-            metrics = TreeMatchingMetrics.compute_task_metrics(similarity_scores, labels, 'similarity')
+            with torch.no_grad():
+                metrics = TreeMatchingMetrics.compute_task_metrics(similarity_scores, labels, 'similarity')
             return loss, similarity_scores, metrics
 
 

@@ -2,6 +2,8 @@
 from ...GMN.graphmatchingnetwork import GraphMatchingNet
 from ...GMN.graphembeddingnetwork import GraphEncoder, GraphAggregator
 from .tree_encoder import TreeEncoder
+from torch.nn.utils.parametrizations import weight_norm
+from torch import nn
 
 #models/tree_matching.py
 class TreeMatchingNet(GraphMatchingNet):
@@ -10,7 +12,8 @@ class TreeMatchingNet(GraphMatchingNet):
         encoder = TreeEncoder(
             node_feature_dim=config['model']['node_feature_dim'],  # 804
             edge_feature_dim=config['model']['edge_feature_dim'],  # 22 
-            hidden_dim=config['model']['node_hidden_dim']         # 256
+            hidden_dim=config['model']['node_hidden_dim'],        # 256
+            dropout=config['model'].get('dropout', 0.1)
         )
         
         # Create aggregator
@@ -33,6 +36,10 @@ class TreeMatchingNet(GraphMatchingNet):
             n_prop_layers=config['model']['n_prop_layers'],
             share_prop_params=True  # Add parameter sharing to reduce memory
         )
+
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                weight_norm(module)
 
     def forward(self, node_features, edge_features, from_idx, to_idx, graph_idx, n_graphs):
         # Ensure input tensors require gradients

@@ -1,8 +1,10 @@
 #experiments/train_similarity.py
 import wandb
+import json
 import torch
 from pathlib import Path
 from datetime import datetime
+from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts, ReduceLROnPlateau
 import logging
 from tqdm import tqdm
 from ..configs.default_tree_config import get_tree_config
@@ -54,8 +56,26 @@ def train_similarity(dataset_type='semeval'):
     model = TreeMatchingNet(config).to(config['device'])
     optimizer = torch.optim.Adam(
         model.parameters(),
-        lr=config['train']['learning_rate'],
-        weight_decay=config['train']['weight_decay']
+        lr=config['train'].get('learning_rate', 5e-4),
+        weight_decay=config['train'].get('weight_decay', 1e-5)
+    )
+
+    # Add two schedulers:
+    # 1. Cosine annealing for cyclic learning rate
+    cosine_scheduler = CosineAnnealingWarmRestarts(
+        optimizer,
+        T_0=5,  # Restart every 5 epochs
+        T_mult=2,  # Double period after each restart
+        eta_min=1e-6  # Min learning rate
+    )
+    
+    # 2. ReduceLROnPlateau to reduce LR when stuck
+    plateau_scheduler = ReduceLROnPlateau(
+        optimizer,
+        mode='max',  # Looking at correlation 
+        factor=0.5,  # Reduce LR by half
+        patience=3,  # Wait 3 epochs before reducing
+        min_lr=1e-6
     )
     
     # Create checkpoint directory
@@ -74,12 +94,19 @@ def train_similarity(dataset_type='semeval'):
         MemoryMonitor.log_memory(step=epoch, prefix=f'Epoch {epoch} start: ')
         
         # Train
+        logger.info(f"training epoch: {epoch}")
         train_metrics = train_epoch(model, train_dataset, optimizer, config, epoch)
         
         # Validate
+        logger.info(f"validating epoch: {epoch}")
         val_metrics = validate_epoch(model, val_dataset, config, epoch)
         
+        logger.info(f"cosine schedule stepping epoch: {epoch}")
+        cosine_scheduler.step()
+        logger.info(f"plateau scheduler stepping epoch: {epoch}")
+        plateau_scheduler.step(val_metrics['correlation'])
         # Update progress bar with correlation instead of accuracy
+        logger.info("setting postfix")
         epoch_pbar.set_postfix({
             'train_loss': f"{train_metrics['loss']:.4f}",
             'train_corr': f"{train_metrics['correlation']:.4f}",
@@ -94,10 +121,11 @@ def train_similarity(dataset_type='semeval'):
             'train/correlation': train_metrics['correlation'],
             'train/mse': train_metrics['mse'],
             'train/batch_time': train_metrics['batch_time'],
-            'train/data_time': train_metrics['data_time'],
+            # 'train/data_time': train_metrics['data_time'],
             'val/loss': val_metrics['loss'],
             'val/correlation': val_metrics['correlation'],
-            'val/mse': val_metrics['mse']
+            'val/mse': val_metrics['mse'],
+            'learning_rate': optimizer.param_groups[0]['lr']
         })
         
         # Save checkpoint

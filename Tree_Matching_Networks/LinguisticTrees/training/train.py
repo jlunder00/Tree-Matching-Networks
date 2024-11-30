@@ -67,7 +67,9 @@ def train_step(model, graphs, labels, optimizer, loss_fn, config):
 
 def train_epoch(model, dataset, optimizer, config, epoch):
     """Train for one epoch with memory management"""
+    # logger.info("put in training mode")
     model.train()
+    # logger.info("configure logs")
     device = config['device']
     task_type = config['model']['task_type']
     
@@ -90,12 +92,14 @@ def train_epoch(model, dataset, optimizer, config, epoch):
             'batch_time': 0.0
         }
     
+    # logger.info("setup loss fn")
     loss_fn = TreeMatchingLoss(
         task_type=config['model']['task_type'],
         **config['model'].get('loss_params', {})
     ).to(device)
     
     # Get total batches for progress bar
+    # logger.info("setup pbar")
     n_samples = len(dataset) if hasattr(dataset, '__len__') else None
     n_batches = n_samples // config['data']['batch_size'] if n_samples else None
     
@@ -110,17 +114,21 @@ def train_epoch(model, dataset, optimizer, config, epoch):
     MemoryMonitor.log_memory(prefix='Training start: ')
     
     start_time = time.time()
+    # logger.info("set zero grad")
     optimizer.zero_grad()
     
     all_predictions = []
     all_labels = []
     
     for batch_idx, (graphs, labels) in pbar:
+        # logger.info("got a batch?")
         try:
             # Training step
+            # logger.info("training step")
             loss, predictions, batch_metrics = train_step(
                 model, graphs, labels, optimizer, loss_fn, config
             )
+            # logger.info("end training step")
             # loss, predictions, accuracy = train_step(
             #     model, graphs, labels, optimizer, loss_fn, config
             # )
@@ -141,25 +149,24 @@ def train_epoch(model, dataset, optimizer, config, epoch):
             
             # Update metrics
             metrics['loss'] += loss
-            metrics['batch_time'] += time.time() - start_time
+            batch_time = time.time() - start_time
+            metrics['batch_time'] += batch_time
             for k, v in batch_metrics.items():
                 if k in metrics:
                     metrics[k] += v
             
             progress_metrics = {
                 'loss': f'{loss:.4f}',
-                'time': f'{metrics['batch_time']:.3f}s'
+                'time': f'{batch_time:.3f}s'
             }
             if task_type == 'similarity':
                 progress_metrics['corr'] = f"{batch_metrics['correlation']:.4f}"
+                progress_metrics['mse'] = f"{batch_metrics['mse']:.4f}"
             else:
                 progress_metrics['acc'] = f"{batch_metrics['accuracy']:.4f}"
+                if 'f1' in batch_metrics:
+                    progress_metrics['f1'] = f"{batch_metrics['f1']:.4f}"
             # Update progress bar
-            # pbar.set_postfix({
-            #     'loss': f"{loss:.4f}",
-            #     'acc': f"{accuracy.item():.4f}",
-            #     'time': f"{batch_time:.3f}s"
-            # })
             pbar.set_postfix(progress_metrics)
             
             # Periodic cleanup
@@ -173,20 +180,15 @@ def train_epoch(model, dataset, optimizer, config, epoch):
                 wandb_log_metrics ={
                     'memory/ram_used_gb': mem_stats['ram_used_gb'],
                     'memory/gpu_used_gb': mem_stats['gpu_used_gb'],
-                    'batch/time': metrics['batch_time'],
+                    'batch/time': batch_time,
+                    'batch/loss': loss,
+                    'batch/learning_rate': optimizer.param_groups[0]['lr'],
                     'batch': batch_idx + epoch * n_batches if n_batches else batch_idx
                 }
                 for k, v in metrics.items():
-                    wandb_log_metrics['batch/'+k] = v
-                # wandb.log({
-                #     'batch/loss': loss,
-                #     'batch/accuracy': accuracy.item(),
-                #     'batch/learning_rate': optimizer.param_groups[0]['lr'],
-                #     'batch/time': batch_time,
-                #     'memory/ram_used_gb': mem_stats['ram_used_gb'],
-                #     'memory/gpu_used_gb': mem_stats['gpu_used_gb'],
-                #     'batch': batch_idx + epoch * n_batches if n_batches else batch_idx
-                # })
+                    if isinstance(v, torch.Tensor):
+                        v = v.item()
+                    wandb_log_metrics[f'batch/{k}'] = v
                 wandb.log(wandb_log_metrics)
                 
             start_time = time.time()
