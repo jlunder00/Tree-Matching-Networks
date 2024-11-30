@@ -37,9 +37,10 @@ class TreeMatchingNet(GraphMatchingNet):
             share_prop_params=True  # Add parameter sharing to reduce memory
         )
 
-        for module in self.modules():
-            if isinstance(module, nn.Linear):
-                weight_norm(module)
+        if config['model']['task_type'] == 'similarity':
+            for module in self.modules():
+                if isinstance(module, nn.Linear):
+                    weight_norm(module)
 
     def forward(self, node_features, edge_features, from_idx, to_idx, graph_idx, n_graphs):
         # Ensure input tensors require gradients

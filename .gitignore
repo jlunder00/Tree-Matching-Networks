@@ -1,4 +1,7 @@
-data/
+data/processed_data/
+data/snli_1.0/
+data/snli_1.0.zip
+data/__MACOSX/
 wandb/
 
 wandb/*

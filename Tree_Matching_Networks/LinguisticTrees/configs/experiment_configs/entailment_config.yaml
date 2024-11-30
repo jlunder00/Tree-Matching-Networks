@@ -1,0 +1,35 @@
+# configs/experiment_configs/entailment_config.yaml
+model:
+  task_type: entailment
+  name: tree_matching
+  node_feature_dim: 804
+  edge_feature_dim: 22
+  node_hidden_dim: 256
+  edge_hidden_dim: 128
+  n_prop_layers: 5
+  dropout: 0.2
+  loss_params:
+    thresholds: [-0.3, 0.3]
+
+data:
+  dataset_type: snli
+  batch_size: 1024
+  max_nodes_per_batch: 1000
+  max_edges_per_batch: 2000
+  num_workers: 8
+  prefetch_factor: 4
+
+train:
+  learning_rate: 0.0005 #5e-4
+  weight_decay: 0.00001 #1e-5
+  n_epochs: 100
+  patience: 10
+  gradient_accumulation_steps: 4
+  clip_value: 1.0
+  cleanup_interval: 5
+
+wandb:
+  project: tree-matching
+  tags: [entailment]
+  log_interval: 100
+  memory_logging: true

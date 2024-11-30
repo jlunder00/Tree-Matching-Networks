@@ -6,19 +6,19 @@ from .metrics import TreeMatchingMetrics
 
 
 class TreeMatchingLoss(nn.Module):
-    def __init__(self, task_type='entailment', **kwargs):
+    def __init__(self, device, task_type='entailment', **kwargs):
         super().__init__()
         self.task_type = task_type
         if task_type == 'entailment':
             self.thresholds = nn.Parameter(
                 torch.tensor(kwargs.get('thresholds', [-0.3, 0.3])),
                 requires_grad=False
-            )
+            ).to(device, non_blocking=True)
         elif task_type == 'similarity':
             self.margin = nn.Parameter(
                 torch.tensor(kwargs.get('margin', 0.1)),
                 requires_grad=False
-            )
+            ).to(device, non_blocking=True)
         else:
             raise ValueError(f"Unknown task type: {task_type}")
 

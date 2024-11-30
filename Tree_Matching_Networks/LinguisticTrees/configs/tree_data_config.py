@@ -16,6 +16,7 @@ class TreeDataConfig:
     
     # SpaCy model variant (trf, lg, sm)
     spacy_variant: Literal['trf', 'lg', 'sm'] = 'trf'
+    use_sharded: bool = True
     
     def __post_init__(self):
         """Convert data_root to absolute path and validate config"""
@@ -29,10 +30,14 @@ class TreeDataConfig:
             
     def _get_split_path(self, split: str) -> Path:
         """Internal helper to construct split path"""
-        if self.dataset_type == 'snli':
-            return self.data_root / split / f'snli_1.0_{split}_converted_{self.spacy_variant}'
-        else:  # semeval
-            return self.data_root / split / f'semeval_{split}_converted_{self.spacy_variant}'
+        base_dir = f'snli_1.0_{split}_converted_{self.spacy_variant}' if self.dataset_type == 'snli' else f'semeval_{split}_converted_{self.spacy_variant}'
+        if self.use_sharded:
+            base_dir += '_sharded'
+        return self.data_root / split / base_dir
+        # if self.dataset_type == 'snli':
+        #     return self.data_root / split / f'snli_1.0_{split}_converted_{self.spacy_variant}'
+        # else:  # semeval
+        #     return self.data_root / split / f'semeval_{split}_converted_{self.spacy_variant}'
             
     @property 
     def train_path(self) -> Path:

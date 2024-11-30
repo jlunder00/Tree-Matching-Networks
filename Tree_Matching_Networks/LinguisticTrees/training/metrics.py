@@ -17,12 +17,12 @@ class TreeMatchingMetrics:
         """Compute F1 score"""
         predictions = (similarities > 0).cpu().numpy()
         labels = labels.cpu().numpy()
-        precision, recall, f1, _ = precision_recall_fscore_support(
+        precision, recall, _, _ = precision_recall_fscore_support(
             labels, 
             predictions, 
-            average='binary'
+            average=None
         )
-        return precision, recall, f1
+        return precision, recall
     
     @staticmethod
     def compute_entailment_metrics(similarities, labels):
@@ -35,7 +35,7 @@ class TreeMatchingMetrics:
         for i in range(3):
             mask = (label_indices == i)
             if mask.sum() > 0:
-                acc = ((similarities[mask] > 0).float() == (labels[mask] > 0).float()).mean()
+                acc = ((similarities[mask] > 0).float() == (labels[mask] > 0).float()).float().mean()
                 accuracies.append(acc)
                 
         return {
@@ -75,14 +75,14 @@ class TreeMatchingMetrics:
             # Existing entailment metrics
             # accuracy = (predictions == labels).float().mean()
             accuracy = TreeMatchingMetrics.compute_accuracy(predictions, labels)
-            precision, recall, f1 = TreeMatchingMetrics.compute_f1(predictions, labels)
+            precision, recall = TreeMatchingMetrics.compute_f1(predictions, labels)
             entailment_metrics = TreeMatchingMetrics.compute_entailment_metrics(predictions, labels)
             
             return {
                 'accuracy': accuracy,
                 'precision': precision,
                 'recall': recall,
-                'f1': f1,
+                # 'f1': f1,
                 **entailment_metrics
             }
 
@@ -95,13 +95,13 @@ class TreeMatchingMetrics:
             # Existing entailment metrics
             # accuracy = (predictions == labels).float().mean()
             accuracy = cls.compute_accuracy(predictions, labels)
-            precision, recall, f1 = cls.compute_f1(predictions, labels)
+            precision, recall= cls.compute_f1(predictions, labels)
             entailment_metrics = cls.compute_entailment_metrics(predictions, labels)
             
             return {
                 'accuracy': accuracy,
                 'precision': precision,
                 'recall': recall,
-                'f1': f1,
+                # 'f1': f1,
                 **entailment_metrics
             }
