@@ -11,12 +11,13 @@ class TreeDataConfig:
     data_root: str = '/home/jlunder/research/Tree-Matching-Networks/data/processed_data'
     
     # Dataset type and task
-    dataset_type: Literal['snli', 'semeval'] = 'snli'
+    dataset_type: Literal['snli', 'semeval', 'para50m'] = 'snli'
     task_type: Literal['entailment', 'similarity'] = 'entailment'
     
     # SpaCy model variant (trf, lg, sm)
     spacy_variant: Literal['trf', 'lg', 'sm'] = 'trf'
-    use_sharded: bool = True
+    use_sharded_train: bool = True
+    use_sharded_validate: bool = True
     
     def __post_init__(self):
         """Convert data_root to absolute path and validate config"""
@@ -30,10 +31,19 @@ class TreeDataConfig:
             
     def _get_split_path(self, split: str) -> Path:
         """Internal helper to construct split path"""
-        base_dir = f'snli_1.0_{split}_converted_{self.spacy_variant}' if self.dataset_type == 'snli' else f'semeval_{split}_converted_{self.spacy_variant}'
-        if self.use_sharded:
+        if self.dataset_type == 'snli': 
+            base_dir = f'snli_1.0_{split}_converted_{self.spacy_variant}' 
+        elif self.dataset_type == 'semeval':
+            base_dir = f'semeval_{split}_converted_{self.spacy_variant}'
+        elif self.dataset_type == 'para50m':
+            base_dir = f'para_50m_{split}_converted_{self.spacy_variant}' 
+
+        if split == 'train' and self.use_sharded_train:
+            base_dir += '_sharded'
+        if split == 'val' and self.use_sharded_validate:
             base_dir += '_sharded'
         return self.data_root / split / base_dir
+
         # if self.dataset_type == 'snli':
         #     return self.data_root / split / f'snli_1.0_{split}_converted_{self.spacy_variant}'
         # else:  # semeval

@@ -9,7 +9,7 @@ from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts, ReduceLROnPlat
 from ..configs.default_tree_config import get_tree_config
 from ..configs.tree_data_config import TreeDataConfig
 from ..data.partition_datasets import MultiPartitionTreeDataset
-from ..models.tree_matching import TreeMatchingNet
+from ..models.tree_matching import TreeMatchingNet, TreeMatchingNetlg
 from ..training.experiment import ExperimentManager
 from ..training.train import train_epoch
 from ..training.validation import validate_epoch
@@ -38,7 +38,10 @@ def train_similarity(args):
     # Data config
     data_config = TreeDataConfig(
         dataset_type=args.dataset,
-        task_type='similarity'
+        task_type='similarity',
+        # use_sharded_train=True,
+        use_sharded_train=False,
+        use_sharded_validate=False
     )
     
     # Initialize wandb
@@ -68,7 +71,8 @@ def train_similarity(args):
     
     # Initialize model and optimizer
     logger.info("Initializing model...")
-    model = TreeMatchingNet(config).to(config['device'])
+    # model = TreeMatchingNet(config).to(config['device'])
+    model = TreeMatchingNetlg(config).to(config['device'])
     optimizer = torch.optim.Adam(
         model.parameters(),
         lr=float(config['train']['learning_rate']),
@@ -107,7 +111,7 @@ def train_similarity(args):
                 wandb.run.summary[f"best_{k}"] = v
 
     # Training loop
-    best_val_corr = checkpoint.get('best_val_corr', -1.0) if args.resume else -1.0
+    bess_val_loss = checkpoint.get('bess_val_loss', -1.0) if args.resume else -1.0
     patience_counter = 0
     
     logger.info("Starting training...")
@@ -142,14 +146,14 @@ def train_similarity(args):
         )
         
         # Early stopping based on correlation
-        if val_metrics['correlation'] > best_val_corr:
-            best_val_corr = val_metrics['correlation']
+        if val_metrics['loss'] > bess_val_loss:
+            bess_val_loss = val_metrics['loss']
             experiment.save_best_model(
                 model, optimizer, epoch,
-                {**metrics, 'best_val_corr': best_val_corr}
+                {**metrics, 'bess_val_loss': bess_val_loss}
             )
             patience_counter = 0
-            logger.info(f"New best validation correlation: {best_val_corr:.4f}")
+            logger.info(f"New best validation loss: {bess_val_loss:.4f}")
         else:
             patience_counter += 1
             
@@ -157,13 +161,13 @@ def train_similarity(args):
             logger.info(f"Early stopping triggered after {epoch + 1} epochs")
             break
             
-    logger.info(f"Training completed! Best validation correlation: {best_val_corr:.4f}")
+    logger.info(f"Training completed! Best validation loss: {bess_val_loss:.4f}")
     wandb.finish()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, default='semeval',
-                      choices=['semeval'],
+                      choices=['semeval', 'para50m'],
                       help='Dataset to use for similarity task')
     parser.add_argument('--config', type=str,
                       help='Base config path')

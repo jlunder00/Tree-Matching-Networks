@@ -38,7 +38,8 @@ def train_entailment(args):
     data_config = TreeDataConfig(
         dataset_type='snli',
         task_type='entailment',
-        use_sharded=True
+        use_sharded_train=True,
+        use_sharded_validate=False
     )
     
     # Initialize wandb

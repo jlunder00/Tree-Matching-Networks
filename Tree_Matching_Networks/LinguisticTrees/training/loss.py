@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .metrics import TreeMatchingMetrics
+# from scipy.stats import pearsonr, spearmanr
 
 
 class TreeMatchingLoss(nn.Module):
@@ -29,11 +30,9 @@ class TreeMatchingLoss(nn.Module):
             y: Second set of graph vectors [batch_size, hidden_dim]
             labels: Either entailment labels (-1,0,1) or similarity scores
         """
-        # Compute cosine similarity
-        x_norm = F.normalize(x, p=2, dim=1)
-        y_norm = F.normalize(y, p=2, dim=1)
-        similarity_scores = torch.sum(x_norm * y_norm, dim=1)
 
+        # similarity_scores = self.euclidean_similarity(x, y)
+        similarity_scores = self.cosine_similarity(x, y)
         if self.task_type == 'entailment':
             # Convert labels to class indices (shift -1,0,1 to 0,1,2)
             labels_idx = labels + 1
@@ -64,11 +63,128 @@ class TreeMatchingLoss(nn.Module):
             
         else:  # similarity task
             # For similarity task, directly optimize MSE between similarities
-            loss = F.mse_loss(similarity_scores, labels)
+            labels = 2*labels -1
+            # similarity_scores = self.normalize_cosine_sim(similarity_scores)
+            loss = 2.0 * self.pearson_loss(similarity_scores, labels)
+            # loss = self.pearson_loss_with_corrcoef(similarity_scores, labels)
+            loss = loss + 0.1 * F.mse_loss(similarity_scores, labels)
+
+            l2_reg = 0.01 * (torch.norm(x) + torch.norm(y))
+            loss = loss + l2_reg
+
+            loss = loss + 0.05 * self.variance_loss(similarity_scores)
             # accuracy = 1.0 - (similarity_scores - labels).abs().mean()
             with torch.no_grad():
                 metrics = TreeMatchingMetrics.compute_task_metrics(similarity_scores, labels, 'similarity')
             return loss, similarity_scores, metrics
+
+    def normalize_cosine_sim(self, cosine_sim):
+        #normalize -1 to 1 cosine sim to be 0-1
+        return (cosine_sim + 1)/2
+
+    def variance_loss(self, predictions):
+        """Loss to encourage predictions to have good variance/spread"""
+        return -torch.var(predictions)  # Negative since we want to maximize variance
+
+
+    # def pearson_loss(self, sim, labels):
+    #     scores_mean = sim.mean()
+    #     labels_mean = labels.mean()
+    #     numerator = ((sim - scores_mean) * (labels - labels_mean)).sum()
+    #     denominator = torch.sqrt(((sim - scores_mean) ** 2).sum() * ((labels - labels_mean) ** 2).sum())
+    #     correlation = numerator / (denominator + 1e-8)
+    #     return 1-correlation
+
+    def pearson_loss(self, sim, labels):
+        # Center the variables
+        sim_centered = sim - sim.mean()
+        labels_centered = labels - labels.mean()
+        
+        # Standardize
+        sim_std = torch.sqrt(torch.sum(sim_centered ** 2) / (sim.size(0) - 1))
+        labels_std = torch.sqrt(torch.sum(labels_centered ** 2) / (labels.size(0) - 1))
+        
+        # Correlation
+        correlation = torch.sum(sim_centered * labels_centered) / ((sim.size(0) - 1) * sim_std * labels_std)
+        
+        # Loss that encourages high positive correlation
+        loss = 1 - correlation
+        return loss
+
+    def euclidean_similarity(self, x, y, scale=1.0):
+        """
+        Compute Euclidean similarity between two tensors.
+
+        Args:
+            x (torch.Tensor): First set of vectors [batch_size, hidden_dim].
+            y (torch.Tensor): Second set of vectors [batch_size, hidden_dim].
+            scale (float): Scale factor to adjust sensitivity of similarity.
+
+        Returns:
+            torch.Tensor: Similarity scores in range [0, 1].
+        """
+        euclidean_distance = torch.sqrt(torch.sum((x - y) ** 2, dim=1))
+        return torch.exp(-euclidean_distance / scale)
+
+    def manhattan_similarity(self, x, y, scale=1.0):
+        """
+        Compute Manhattan similarity between two tensors.
+
+        Args:
+            x (torch.Tensor): First set of vectors [batch_size, hidden_dim].
+            y (torch.Tensor): Second set of vectors [batch_size, hidden_dim].
+            scale (float): Scale factor to adjust sensitivity of similarity.
+
+        Returns:
+            torch.Tensor: Similarity scores in range [0, 1].
+        """
+        manhattan_distance = torch.sum(torch.abs(x - y), dim=1)
+        return torch.exp(-manhattan_distance / scale)
+
+    def chebyshev_similarity(self, x, y, scale=1.0):
+        """
+        Compute Chebyshev similarity between two tensors.
+
+        Args:
+            x (torch.Tensor): First set of vectors [batch_size, hidden_dim].
+            y (torch.Tensor): Second set of vectors [batch_size, hidden_dim].
+            scale (float): Scale factor to adjust sensitivity of similarity.
+
+        Returns:
+            torch.Tensor: Similarity scores in range [0, 1].
+        """
+        chebyshev_distance = torch.max(torch.abs(x - y), dim=1).values
+        return torch.exp(-chebyshev_distance / scale)
+
+    def cosine_similarity(self, x, y):
+        # Compute cosine similarity
+        x_norm = F.normalize(x, p=2, dim=1)
+        y_norm = F.normalize(y, p=2, dim=1)
+        return torch.sum(x_norm * y_norm, dim=1)
+
+    def pearson_loss_with_corrcoef(self, predictions, targets):
+        """
+        Compute the negative Pearson correlation loss using torch.corrcoef.
+        
+        Args:
+            predictions (torch.Tensor): Predicted values [batch_size].
+            targets (torch.Tensor): True target values [batch_size].
+            
+        Returns:
+            torch.Tensor: Negative Pearson correlation loss.
+        """
+        # Stack predictions and targets to form a 2D tensor
+        inputs = torch.stack([predictions, targets])
+        
+        # Compute correlation matrix
+        corr_matrix = torch.corrcoef(inputs)
+        
+        # Extract Pearson correlation (off-diagonal element)
+        pearson_corr = corr_matrix[0, 1]
+        
+        # Return negative correlation for minimization
+        return 1-pearson_corr
+
 
 
 
