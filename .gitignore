@@ -173,3 +173,5 @@ cython_debug/
 
 experiments/entailment_*
 experiments/similarity_*
+
+*.pyc

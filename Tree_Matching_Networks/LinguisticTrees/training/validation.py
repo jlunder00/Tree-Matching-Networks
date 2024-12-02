@@ -1,7 +1,7 @@
 # training/validation.py
 import torch
 import logging
-from .loss import TreeMatchingLoss
+from .loss import SimilarityLoss, EntailmentLoss 
 import wandb
 from tqdm import tqdm
 import time
@@ -10,7 +10,7 @@ from ..data.data_utils import GraphData
 
 logger = logging.getLogger(__name__)
 
-def validate_step(model, graphs, labels, loss_fn, device):
+def validate_step(model, graphs, labels, loss_fn, device, config):
     """Single validation step with memory management"""
     try:
         # Move data to device
@@ -25,7 +25,7 @@ def validate_step(model, graphs, labels, loss_fn, device):
         labels = labels.to(device, non_blocking=True)
         
         # Forward pass
-        graph_vectors = model(
+        outputs = model(
             graphs.node_features,
             graphs.edge_features,
             graphs.from_idx,
@@ -34,15 +34,17 @@ def validate_step(model, graphs, labels, loss_fn, device):
             graphs.n_graphs
         )
         
-        # Split vectors and compute metrics
-        x, y = graph_vectors[::2], graph_vectors[1::2]
-        loss, predictions, metrics = loss_fn(x, y, labels)
+        # Compute metrics based on task
+        if config['model']['task_type'] == 'similarity':
+            x, y = outputs[::2], outputs[1::2]
+            loss, predictions, metrics = loss_fn(x, y, labels)
+            del x, y
+        else:  # entailment
+            loss, predictions, metrics = loss_fn(outputs, labels)
         
         # Cleanup
         del graphs
-        del graph_vectors
-        del x
-        del y
+        del outputs
         torch.cuda.empty_cache()
         
         return loss.item(), predictions, metrics
@@ -54,6 +56,56 @@ def validate_step(model, graphs, labels, loss_fn, device):
             raise
         else:
             raise
+
+# def validate_step(model, graphs, labels, loss_fn, device, config):
+#     """Single validation step with memory management"""
+#     try:
+#         # Move data to device
+#         graphs = GraphData(
+#             node_features=graphs.node_features.to(device, non_blocking=True),
+#             edge_features=graphs.edge_features.to(device, non_blocking=True),
+#             from_idx=graphs.from_idx.to(device, non_blocking=True),
+#             to_idx=graphs.to_idx.to(device, non_blocking=True),
+#             graph_idx=graphs.graph_idx.to(device, non_blocking=True),
+#             n_graphs=graphs.n_graphs
+#         )
+#         labels = labels.to(device, non_blocking=True)
+#         
+#         # Forward pass
+#         graph_vectors = model(
+#             graphs.node_features,
+#             graphs.edge_features,
+#             graphs.from_idx,
+#             graphs.to_idx,
+#             graphs.graph_idx,
+#             graphs.n_graphs
+#         )
+#         
+#         # Split vectors and compute metrics
+#         # x, y = graph_vectors[::2], graph_vectors[1::2]
+#         # loss, predictions, metrics = loss_fn(x, y, labels)
+#         if config['model']['task_type'] == 'similarity':
+#             x, y = graph_vectors[::2], graph_vectors[1::2]
+#             loss, predictions, metrics = loss_fn(x, y, labels)
+#             del x
+#             del y
+#         else:  # entailment
+#             loss, predictions, metrics = loss_fn(graph_vectors, labels)
+#         
+#         # Cleanup
+#         del graphs
+#         del graph_vectors
+#         torch.cuda.empty_cache()
+#         
+#         return loss.item(), predictions, metrics
+#         
+#     except RuntimeError as e:
+#         if "out of memory" in str(e):
+#             logger.error("OOM during validation step")
+#             torch.cuda.empty_cache()
+#             raise
+#         else:
+#             raise
 
 @torch.no_grad()
 def validate_epoch(model, dataset, config, epoch):
@@ -82,11 +134,18 @@ def validate_epoch(model, dataset, config, epoch):
         }
     
     # Create loss function
-    loss_fn = TreeMatchingLoss(
-        device=device,
-        task_type=config['model']['task_type'],
-        **config['model'].get('loss_params', {})
-    ).to(device, non_blocking=True)
+    # loss_fn = TreeMatchingLoss(
+    #     device=device,
+    #     task_type=config['model']['task_type'],
+    #     **config['model'].get('loss_params', {})
+    # ).to(device, non_blocking=True)
+    if task_type == 'similarity':
+        loss_fn = SimilarityLoss(
+            device = device
+            # **config['mode'].get('loss_params', {})
+        ).to(device, non_blocking=True)
+    else:
+        loss_fn = EntailmentLoss(device).to(device=device, non_blocking=True)
     
     # Get total batches for progress bar
     n_samples = len(dataset) if hasattr(dataset, '__len__') else None
@@ -111,7 +170,7 @@ def validate_epoch(model, dataset, config, epoch):
         try:
             # Validation step
             loss, predictions, batch_metrics = validate_step(
-                model, graphs, labels, loss_fn, device
+                model, graphs, labels, loss_fn, device, config
             )
             
             # Store predictions

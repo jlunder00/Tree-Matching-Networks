@@ -2,7 +2,7 @@
 from ..data.data_utils import GraphData
 from tqdm import tqdm
 import wandb
-from .loss import TreeMatchingLoss
+from .loss import SimilarityLoss, EntailmentLoss 
 import torch
 import logging
 import time
@@ -10,13 +10,70 @@ from ..utils.memory_utils import MemoryMonitor
 
 logger = logging.getLogger(__name__)
 
+# def train_step(model, graphs: GraphData, labels: torch.Tensor, 
+#                optimizer, loss_fn, config: dict):
+#     """Single training step with memory optimization"""
+#     device = config['device']
+#     
+#     try:
+#         # Data should already be on device and pinned since we're using DataLoader properly
+#         if not graphs.node_features.is_cuda:
+#             graphs = GraphData(
+#                 node_features=graphs.node_features.to(device, non_blocking=True),
+#                 edge_features=graphs.edge_features.to(device, non_blocking=True),
+#                 from_idx=graphs.from_idx.to(device, non_blocking=True),
+#                 to_idx=graphs.to_idx.to(device, non_blocking=True),
+#                 graph_idx=graphs.graph_idx.to(device, non_blocking=True),
+#                 n_graphs=graphs.n_graphs
+#             )
+#             labels = labels.to(device, non_blocking=True)
+#         
+#         # Forward pass
+#         graph_vectors = model(
+#             graphs.node_features,
+#             graphs.edge_features,
+#             graphs.from_idx,
+#             graphs.to_idx,
+#             graphs.graph_idx,
+#             graphs.n_graphs
+#         )
+#         
+#         # Split vectors and compute loss
+#         x, y = graph_vectors[::2], graph_vectors[1::2]
+#         loss, predictions, metrics = loss_fn(x, y, labels)
+#         
+#         # Scale loss for gradient accumulation
+#         loss = loss / config['train']['gradient_accumulation_steps']
+#         loss.backward()
+#         
+#         # Move predictions to CPU for metrics
+#         predictions = predictions.cpu()
+#         
+#         # Cleanup GPU tensors
+#         del graphs
+#         del graph_vectors
+#         del x
+#         del y
+#         
+#         return loss.item() * config['train']['gradient_accumulation_steps'], predictions, metrics
+#         
+#     except RuntimeError as e:
+#         if "out of memory" in str(e):
+#             logger.error("OOM during training step")
+#             torch.cuda.empty_cache()
+#             MemoryMonitor.clear_memory()
+#             raise
+#         else:
+#             raise
+
 def train_step(model, graphs: GraphData, labels: torch.Tensor, 
                optimizer, loss_fn, config: dict):
-    """Single training step with memory optimization"""
+    """Single training step with full gradient optimization"""
     device = config['device']
+    scaler = torch.GradScaler(device)
     
     try:
-        # Data should already be on device and pinned since we're using DataLoader properly
+        # Move data to device if needed
         if not graphs.node_features.is_cuda:
             graphs = GraphData(
                 node_features=graphs.node_features.to(device, non_blocking=True),
@@ -27,9 +84,15 @@ def train_step(model, graphs: GraphData, labels: torch.Tensor,
                 n_graphs=graphs.n_graphs
             )
             labels = labels.to(device, non_blocking=True)
-        
+            
+        # Enable gradient checkpointing if configured
+        # if config['model'].get('gradient_checkpointing', False):
+        #     model.enable_checkpointing()
+            
+        # Mixed precision forward pass
+        # with torch.autocast(device):
         # Forward pass
-        graph_vectors = model(
+        outputs = model(
             graphs.node_features,
             graphs.edge_features,
             graphs.from_idx,
@@ -38,22 +101,37 @@ def train_step(model, graphs: GraphData, labels: torch.Tensor,
             graphs.n_graphs
         )
         
-        # Split vectors and compute loss
-        x, y = graph_vectors[::2], graph_vectors[1::2]
-        loss, predictions, metrics = loss_fn(x, y, labels)
+        # Compute loss based on model type
+        if config['model']['task_type'] == 'similarity':
+            x, y = outputs[::2], outputs[1::2]
+            loss, predictions, metrics = loss_fn(x, y, labels)
+        else:  # entailment
+            loss, predictions, metrics = loss_fn(outputs, labels)
         
-        # Scale loss for gradient accumulation
+        # Scale loss for accumulation
         loss = loss / config['train']['gradient_accumulation_steps']
-        loss.backward()
+            
+        # Scaled backward pass
+        scaler.scale(loss).backward()
         
-        # Move predictions to CPU for metrics
+        # Unscale gradients for clipping
+        scaler.unscale_(optimizer)
+        torch.nn.utils.clip_grad_norm_(
+            model.parameters(), 
+            config['train']['clip_value']
+        )
+        
+        # Step optimizer and update scaler
+        scaler.step(optimizer)
+        scaler.update()
+        
+        # Clear gradients
+        optimizer.zero_grad(set_to_none=True)
+        
+        # Move predictions to CPU and clear cache
         predictions = predictions.cpu()
-        
-        # Cleanup GPU tensors
-        del graphs
-        del graph_vectors
-        del x
-        del y
+        if config['train'].get('aggressive_cleanup', False):
+            torch.cuda.empty_cache()
         
         return loss.item() * config['train']['gradient_accumulation_steps'], predictions, metrics
         
@@ -94,11 +172,18 @@ def train_epoch(model, dataset, optimizer, config, epoch):
         })
     
     # Initialize loss function
-    loss_fn = TreeMatchingLoss(
-        device=device,
-        task_type=task_type,
-        **config['model'].get('loss_params', {})
-    ).to(device, non_blocking=True)
+    # loss_fn = TreeMatchingLoss(
+    #     device=device,
+    #     task_type=task_type,
+    #     **config['model'].get('loss_params', {})
+    # ).to(device, non_blocking=True)
+    if task_type == 'similarity':
+        loss_fn = SimilarityLoss(
+            device = device
+            # **config['mode'].get('loss_params', {})
+        ).to(device, non_blocking=True)
+    else:
+        loss_fn = EntailmentLoss(device).to(device=device, non_blocking=True)
     
     # Create data iterator with progress bar
     data_loader = dataset.pairs(config['data']['batch_size'])
