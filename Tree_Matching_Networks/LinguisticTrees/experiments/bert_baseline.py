@@ -53,10 +53,17 @@ def evaluate_dataset(args):
         
     # Extract sentence pairs and labels
     sent1, sent2, labels = [], [], []
-    for item in data:
-        sent1.append(item['sentence1'])
-        sent2.append(item['sentence2'])
-        labels.append(item['gold_label'])
+    tree_data = data['graph_pairs']
+    label_data = data['labels']
+    for i in range(len(tree_data)):
+        tree_item = tree_data[i]
+        sent1.append(tree_item[0]['text'])
+        sent2.append(tree_item[1]['text'])
+        label_item = label_data[i]
+        labels.append(label_item)
+
+    
+        # labels.append(item['gold_label'])
         
     # Convert labels
     if args.task == 'similarity':
