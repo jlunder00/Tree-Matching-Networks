@@ -79,6 +79,8 @@ class GroupedTreeDataset(Dataset):
         self._process_groups(data['groups'])
         
         logger.info(f"Loaded {len(self.groups)} groups")
+
+        self._build_indices()
         
     def _process_groups(self, raw_groups: List[Dict]):
         """Process raw groups into TreeGroup objects"""
@@ -103,6 +105,20 @@ class GroupedTreeDataset(Dataset):
                 text1=group['text1'],
                 text2=group['text2']
             ))
+
+    def _build_indices(self):
+        """Build indices for efficient lookup"""
+        self.group_boundaries = []  # (start_idx, end_idx) for each group
+        self.tree_to_group = {}    # Map tree idx to group idx
+        
+        curr_idx = 0
+        for group_idx, group in enumerate(self.groups):
+            n_trees = len(group.trees1)
+            self.group_boundaries.append((curr_idx, curr_idx + n_trees))
+            
+            for i in range(n_trees):
+                self.tree_to_group[curr_idx + i] = group_idx
+            curr_idx += n_trees
             
     def _load_word_embeddings(self, tree: Dict) -> torch.Tensor:
         """Load or compute word embeddings for a tree"""
@@ -129,11 +145,49 @@ class GroupedTreeDataset(Dataset):
         return torch.cat([word_embeddings, node_features], dim=-1)
         
     def __len__(self) -> int:
-        return len(self.groups)
+        return sum(len(g.trees1)+len(g.trees2) for g in self.groups)
         
-    def __getitem__(self, idx: int) -> TreeGroup:
-        """Get a single group"""
-        return self.groups[idx]
+    def __getitem__(self, idx):
+        """Get single tree and its group info"""
+        group_idx = self.tree_to_group[idx]
+        group = self.groups[group_idx]
+        start_idx, end_idx = self.group_boundaries[group_idx]
+        relative_idx = idx - start_idx
+        
+        return {
+            'tree': group.trees1[relative_idx],
+            'group_idx': group_idx,
+            'tree_idx': relative_idx
+        }
+
+    def get_dataloader(self, 
+                      batch_size: int,
+                      num_workers: int = 0,
+                      use_async: bool = True,
+                      **kwargs):
+        """Get DataLoader for this dataset
+        
+        Args:
+            batch_size: Batch size (pairs per batch)
+            num_workers: Number of worker processes
+            use_async: Whether to use async batch preparation
+            **kwargs: Additional args for DataLoader
+        """
+        if use_async:
+            sampler = AsyncBatchSampler(
+                self,
+                batch_size=batch_size,
+                **kwargs.pop('sampler_args', {})
+            )
+            return AsyncDataLoader(sampler, **kwargs)
+        else:
+            return DataLoader(
+                self,
+                batch_size=batch_size // 2,  # Divide by 2 since each group creates multiple pairs
+                collate_fn=BatchCollator(self),
+                num_workers=num_workers,
+                **kwargs
+            )
 
 class StreamingGroupedTreeDataset(IterableDataset):
     """Streaming version of GroupedTreeDataset for large datasets"""
@@ -228,6 +282,49 @@ class StreamingGroupedTreeDataset(IterableDataset):
             groups = self._load_shard(shard)
             for group in groups:
                 yield group
+
+    def get_dataloader(self,
+                      batch_size: int,
+                      num_workers: int = 0, 
+                      use_async: bool = True,
+                      **kwargs):
+        """Get DataLoader for streaming dataset"""
+        if use_async:
+            sampler = AsyncBatchSampler(
+                self,
+                batch_size=batch_size,
+                **kwargs.pop('sampler_args', {})
+            )
+            return AsyncDataLoader(sampler, **kwargs)
+        else:
+            return DataLoader(
+                self,
+                batch_size=batch_size // 2,
+                collate_fn=BatchCollator(self),
+                num_workers=num_workers,
+                **kwargs
+            )
+
+class AsyncDataLoader:
+    """Wrapper for async batch sampler"""
+    def __init__(self, sampler: AsyncBatchSampler, **kwargs):
+        self.sampler = sampler
+        self.kwargs = kwargs
+        
+    def __iter__(self):
+        while True:
+            try:
+                yield self.sampler.get_batch()
+            except StopIteration:
+                break
+                
+    def __len__(self):
+        # Estimate number of batches
+        total_pairs = sum(
+            len(group.trees1) * (len(group.trees1) - 1) // 2  # Positive pairs per group
+            for group in self.sampler.dataset.groups
+        )
+        return total_pairs // self.sampler.batch_size
 
 class TreeMatchingDataset(Dataset):
     """Base dataset class for tree matching"""
