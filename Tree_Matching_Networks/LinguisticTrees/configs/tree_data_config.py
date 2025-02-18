@@ -11,8 +11,8 @@ class TreeDataConfig:
     data_root: str = '/home/jlunder/research/Tree-Matching-Networks/data/processed_data'
     
     # Dataset type and task
-    dataset_type: Literal['snli', 'semeval', 'para50m'] = 'snli'
-    task_type: Literal['entailment', 'similarity'] = 'entailment'
+    dataset_type: Literal['snli', 'semeval', 'para50m', 'wikiqs'] = 'snli'
+    task_type: Literal['entailment', 'similarity', 'info_nce'] = 'entailment'
     
     # SpaCy model variant (trf, lg, sm)
     spacy_variant: Literal['trf', 'lg', 'sm'] = 'trf'
@@ -37,6 +37,9 @@ class TreeDataConfig:
             base_dir = f'semeval_{split}_converted_{self.spacy_variant}'
         elif self.dataset_type == 'para50m':
             base_dir = f'para_50m_{split}_converted_{self.spacy_variant}' 
+        elif self.dataset_type == 'wikiqs':
+            base_dir = f'wikiqs_{split}_converted_{self.spacy_variant}'
+
 
         if split == 'train' and self.use_sharded_train:
             base_dir += '_sharded'

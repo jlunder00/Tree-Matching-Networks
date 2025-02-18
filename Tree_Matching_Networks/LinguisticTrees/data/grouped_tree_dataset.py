@@ -66,18 +66,18 @@ class GroupedTreeDataset(Dataset):
         # Process groups
         self.groups = []
         for group in data['groups']:
-            if not group['trees1']:  # Skip empty groups
+            if not group['trees']:  # Skip empty groups
                 continue
                 
             # Limit group size
-            trees = group['trees1']
+            trees = group['trees']
             if len(trees) > self.max_group_size:
                 trees = random.sample(trees, self.max_group_size)
                 
             self.groups.append(TreeGroup(
                 group_id=group['group_id'],
                 trees=trees,
-                text=group['text1']
+                text=group['text']
             ))
             
         # Build lookup indices

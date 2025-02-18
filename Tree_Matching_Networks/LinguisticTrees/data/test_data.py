@@ -15,7 +15,7 @@ config = {
     'num_workers': 4
 }
 
-dataset = GroupedTreeDataset(data_path='/home/jlunder/research/data/wikiqs/dest3/test_data.json', config=config)
+dataset = GroupedTreeDataset(data_path='/home/jlunder/research/data/wikiqs/dest3/test_output_shard/shard_000000.json', config=config)
 
 
 train_loader = dataset.get_dataloader(

@@ -75,7 +75,7 @@ class ExperimentManager:
         
         # Extract timestamp from path if possible
         path = Path(checkpoint_path)
-        if path.parent.parent.name.startswith(('entailment_', 'similarity_')):
+        if path.parent.parent.name.startswith(('entailment_', 'similarity_', 'infonce_')):
             timestamp = path.parent.parent.name.split('_', 1)[1]
         else:
             timestamp = None

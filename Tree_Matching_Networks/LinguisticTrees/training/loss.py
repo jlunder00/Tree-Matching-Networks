@@ -109,6 +109,49 @@ class EntailmentLoss(BaseLoss):
         # return loss, predictions, metrics
         return clipped_loss, predictions, metrics
 
+class InfoNCELoss(BaseLoss):
+    """InfoNCE contrastive loss implementation"""
+    def __init__(self, device, temperature=0.07):
+        super().__init__(device)
+        self.temperature = temperature
+
+    def forward(self, embeddings, batch_info):
+        """Compute InfoNCE loss from embeddings and batch info
+        
+        Args:
+            embeddings: Graph embeddings for all trees [n_total, hidden_dim]
+            batch_info: BatchInfo object with anchor/positive/negative indices
+        """
+        # Extract pairs
+        anchor_embeddings = embeddings[batch_info.anchor_indices]
+        
+        # Compute similarities between all pairs
+        sim_matrix = F.cosine_similarity(
+            anchor_embeddings.unsqueeze(1),  # [n_anchors, 1, hidden_dim]
+            embeddings.unsqueeze(0),         # [1, n_total, hidden_dim]
+            dim=2
+        )
+        sim_matrix = sim_matrix / self.temperature
+        
+        # Create labels matrix - 1 for positive pairs, 0 for all else
+        labels = torch.zeros_like(sim_matrix)
+        for anchor_idx, pos_idx in batch_info.positive_pairs:
+            # Find position of this anchor in anchor list
+            anchor_pos = batch_info.anchor_indices.index(anchor_idx)
+            labels[anchor_pos, pos_idx] = 1
+            
+        # InfoNCE loss
+        loss = F.cross_entropy(sim_matrix, labels)
+        
+        # Basic metrics
+        with torch.no_grad():
+            metrics = {
+                'pos_similarity': sim_matrix[labels == 1].mean(),
+                'neg_similarity': sim_matrix[labels == 0].mean(),
+            }
+            
+        return loss, None, metrics
+
 # class TreeMatchingLoss(nn.Module):
 #     def __init__(self, device, task_type='entailment', **kwargs):
 #         super().__init__()
