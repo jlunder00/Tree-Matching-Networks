@@ -1,19 +1,32 @@
 # experiments/train_contrastive.py
+import torch.multiprocessing as mp
 import wandb
 import torch
 from pathlib import Path
 import logging
 import argparse
 from datetime import datetime
-from ..configs.default_tree_config import get_tree_config
-from ..configs.tree_data_config import TreeDataConfig
-from ..data.grouped_tree_dataset import GroupedTreeDataset
-from ..models.tree_matching import TreeMatchingNet
-from ..training.experiment import ExperimentManager
-from ..training.train import train_epoch
-from ..training.validation import validate_epoch
-from ..utils.memory_utils import MemoryMonitor
+import sys
+try:
+    from ..configs.default_tree_config import get_tree_config
+    from ..configs.tree_data_config import TreeDataConfig
+    from ..data.grouped_tree_dataset import GroupedTreeDataset
+    from ..models.tree_matching import TreeMatchingNet
+    from ..training.experiment import ExperimentManager
+    from ..training.train import train_epoch
+    from ..training.validation import validate_epoch
+    from ..utils.memory_utils import MemoryMonitor
+except:
+    from Tree_Matching_Networks.LinguisticTrees.configs.default_tree_config import get_tree_config
+    from Tree_Matching_Networks.LinguisticTrees.configs.tree_data_config import TreeDataConfig
+    from Tree_Matching_Networks.LinguisticTrees.data.grouped_tree_dataset import GroupedTreeDataset
+    from Tree_Matching_Networks.LinguisticTrees.models.tree_matching import TreeMatchingNet
+    from Tree_Matching_Networks.LinguisticTrees.training.experiment import ExperimentManager
+    from Tree_Matching_Networks.LinguisticTrees.training.train import train_epoch
+    from Tree_Matching_Networks.LinguisticTrees.training.validation import validate_epoch
+    from Tree_Matching_Networks.LinguisticTrees.utils.memory_utils import MemoryMonitor
 
+mp.set_start_method('spawn', force=True)
 logger = logging.getLogger(__name__)
 
 def train_contrastive(args):
@@ -28,7 +41,7 @@ def train_contrastive(args):
         # Load fresh config
         config = get_tree_config(
             task_type='info_nce',  # New task type
-            base_config_path=args.config,
+            base_config_path=args.config if args.config else '/home/jlunder/research/Tree-Matching-Networks/Tree_Matching_Networks/LinguisticTrees/configs/experiment_configs/contrastive_config.yaml',
             override_path=args.override
         )
         experiment = ExperimentManager('contrastive', config)
@@ -58,7 +71,7 @@ def train_contrastive(args):
     )
     
     val_dataset = GroupedTreeDataset(
-        data_path=data_config.dev_path / "shard_000000.json",  # Adjust path as needed
+        data_path=data_config.dev_path / "shard_000002.json",  # Adjust path as needed
         config=config
     )
     
@@ -126,6 +139,7 @@ def train_contrastive(args):
             
     logger.info(f"Training completed! Best validation loss: {best_val_loss:.4f}")
     wandb.finish()
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

@@ -365,7 +365,7 @@ def train_epoch_contrastive(model, dataset, optimizer, loss_fn, config, epoch):
         neg_pairs_per_anchor=config['data'].get('neg_pairs_per_anchor', 4),
         min_groups_per_batch=config['data'].get('min_groups_per_batch', 4),
         anchors_per_group=config['data'].get('anchors_per_group', 2),
-        num_workers=config['data'].get('num_workers', 4),
+        num_workers=config['data'].get('num_workers', 1),
         pin_memory=True
     )
 
