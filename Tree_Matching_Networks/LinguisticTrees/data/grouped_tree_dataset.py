@@ -1,5 +1,5 @@
 # data/grouped_tree_dataset.py
-from typing import Iterator, Tuple, Dict, List
+from typing import Iterator, Tuple, Dict, List, Optional
 from pathlib import Path
 from dataclasses import dataclass
 import torch
@@ -87,7 +87,7 @@ class GroupedTreeDataset(IterableDataset):
                     data = json.load(f)
                     self.file_counts.append({
                         'n_groups': len(data['groups']),
-                        'trees_per_group': [len(g['trees1']) for g in data['groups']]
+                        'trees_per_group': [len(g['trees']) for g in data['groups']]
                     })
 
         # Initialize feature extractor

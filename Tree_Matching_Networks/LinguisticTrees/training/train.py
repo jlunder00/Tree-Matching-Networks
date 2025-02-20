@@ -1,6 +1,7 @@
 # training/train.py
 from ..data.data_utils import GraphData
 from ..data.batch_utils import BatchInfo
+from ..data.dynamic_calculated_contrastive_dataset import get_dynamic_calculated_dataloader
 from tqdm import tqdm
 import wandb
 from .loss import SimilarityLoss, EntailmentLoss, InfoNCELoss 
@@ -218,8 +219,6 @@ def train_epoch(model, dataset, optimizer, config, epoch):
     
 
     if task_loader_type == 'contrastive':
-        if not hasattr(dataset, 'get_dataloader'):
-            raise ValueError("Dataset must support contrastive loading")
         return train_epoch_contrastive(model, dataset, optimizer, loss_fn, config, epoch)
 
 
@@ -359,12 +358,8 @@ def train_epoch(model, dataset, optimizer, config, epoch):
 def train_epoch_contrastive(model, dataset, optimizer, loss_fn, config, epoch):
     """Training epoch routine for contrastive learning"""
     # Get contrastive dataloader
-    train_loader = dataset.get_dataloader(
-        batch_size=config['data']['batch_size'],
-        pos_pairs_per_anchor=config['data'].get('pos_pairs_per_anchor', 2),
-        neg_pairs_per_anchor=config['data'].get('neg_pairs_per_anchor', 4),
-        min_groups_per_batch=config['data'].get('min_groups_per_batch', 4),
-        anchors_per_group=config['data'].get('anchors_per_group', 2),
+    train_loader = get_dynamic_calculated_dataloader(
+        dataset,
         num_workers=config['data'].get('num_workers', 1),
         pin_memory=True
     )

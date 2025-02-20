@@ -1,0 +1,97 @@
+aggregator:
+  aggregation_type: sum
+  gated: true
+  graph_transform_sizes:
+  - 128
+  input_size:
+  - 32
+  node_hidden_sizes:
+  - 128
+data:
+  anchors_per_group: 2
+  batch_size: 512
+  dataset_type: wikiqs
+  min_groups_per_batch: 8
+  neg_pairs_per_anchor: 10
+  num_workers: 12
+  pos_pairs_per_anchor: 4
+  prefetch_factor: 2
+device: cuda
+embedding_cache_dir: /home/jlunder/research/TMN_DataGen/embedding_cache3/
+encoder:
+  edge_hidden_sizes:
+  - 16
+  node_feature_dim: 1
+  node_hidden_sizes:
+  - 32
+evaluation:
+  batch_size: 20
+graph_embedding_net:
+  edge_hidden_sizes: &id001
+  - 64
+  - 64
+  edge_net_init_scale: 0.1
+  edge_state_dim: 16
+  layer_norm: false
+  n_prop_layers: 5
+  node_hidden_sizes: &id002
+  - 64
+  node_state_dim: 32
+  node_update_type: gru
+  prop_type: matching
+  reverse_dir_param_different: false
+  share_prop_params: true
+  use_reverse_direction: true
+graph_matching_net:
+  edge_hidden_sizes: *id001
+  edge_net_init_scale: 0.1
+  edge_state_dim: 16
+  layer_norm: false
+  n_prop_layers: 5
+  node_hidden_sizes: *id002
+  node_state_dim: 32
+  node_update_type: gru
+  prop_type: matching
+  reverse_dir_param_different: false
+  share_prop_params: true
+  similarity: dotproduct
+  use_reverse_direction: true
+model:
+  dropout: 0.2
+  edge_feature_dim: 22
+  edge_hidden_dim: 512
+  n_prop_layers: 5
+  name: tree_matching
+  node_feature_dim: 804
+  node_hidden_dim: 1024
+  task_loader_type: contrastive
+  task_type: info_nce
+  temperature: 0.07
+model_type: matching
+seed: 8
+train:
+  cleanup_interval: 5
+  clip_value: 1.0
+  gradient_accumulation_steps: 1
+  learning_rate: 0.0005
+  n_epochs: 100
+  patience: 10
+  weight_decay: 1.0e-05
+training:
+  batch_size: 20
+  clip_value: 10.0
+  eval_after: 10
+  graph_vec_regularizer_weight: 1.0e-06
+  learning_rate: 0.0001
+  loss: margin
+  margin: 1.0
+  mode: pair
+  n_training_steps: 500000
+  print_after: 100
+wandb:
+  log_interval: 10
+  memory_logging: true
+  project: tree-matching
+  tags:
+  - contrastive
+  - wikiqs

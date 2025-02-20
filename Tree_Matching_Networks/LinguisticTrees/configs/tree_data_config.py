@@ -43,7 +43,7 @@ class TreeDataConfig:
 
         if split == 'train' and self.use_sharded_train:
             base_dir += '_sharded'
-        if split == 'val' and self.use_sharded_validate:
+        if split == 'dev' and self.use_sharded_validate:
             base_dir += '_sharded'
         return self.data_root / split / base_dir
 

@@ -10,7 +10,7 @@ import sys
 try:
     from ..configs.default_tree_config import get_tree_config
     from ..configs.tree_data_config import TreeDataConfig
-    from ..data.grouped_tree_dataset import GroupedTreeDataset
+    from ..data import GroupedTreeDataset, DynamicCalculatedContrastiveDataset, get_dynamic_calculated_dataloader
     from ..models.tree_matching import TreeMatchingNet
     from ..training.experiment import ExperimentManager
     from ..training.train import train_epoch
@@ -19,14 +19,13 @@ try:
 except:
     from Tree_Matching_Networks.LinguisticTrees.configs.default_tree_config import get_tree_config
     from Tree_Matching_Networks.LinguisticTrees.configs.tree_data_config import TreeDataConfig
-    from Tree_Matching_Networks.LinguisticTrees.data.grouped_tree_dataset import GroupedTreeDataset
+    from Tree_Matching_Networks.LinguisticTrees.data import GroupedTreeDataset, DynamicCalculatedContrastiveDataset, get_dynamic_calculated_dataloader
     from Tree_Matching_Networks.LinguisticTrees.models.tree_matching import TreeMatchingNet
     from Tree_Matching_Networks.LinguisticTrees.training.experiment import ExperimentManager
     from Tree_Matching_Networks.LinguisticTrees.training.train import train_epoch
     from Tree_Matching_Networks.LinguisticTrees.training.validation import validate_epoch
     from Tree_Matching_Networks.LinguisticTrees.utils.memory_utils import MemoryMonitor
 
-mp.set_start_method('spawn', force=True)
 logger = logging.getLogger(__name__)
 
 def train_contrastive(args):
@@ -51,8 +50,8 @@ def train_contrastive(args):
     data_config = TreeDataConfig(
         dataset_type='wikiqs',
         task_type='info_nce',
-        use_sharded_train=False,  # No sharding for grouped dataset yet
-        use_sharded_validate=False
+        use_sharded_train=True,  # No sharding for grouped dataset yet
+        use_sharded_validate=True
     )
     
     # Initialize wandb
@@ -65,14 +64,41 @@ def train_contrastive(args):
     
     logger.info("Creating datasets...")
     # Adjust paths for your environment
-    train_dataset = GroupedTreeDataset(
-        data_path=data_config.train_path / "shard_000000.json",  # Adjust path as needed
-        config=config
+    # train_dataset = GroupedTreeDataset(
+    #     data_path=data_config.train_path / "shard_000000.json",  # Adjust path as needed
+    #     config=config
+    # )
+    # 
+    # val_dataset = GroupedTreeDataset(
+    #     data_path=data_config.dev_path / "shard_000002.json",  # Adjust path as needed
+    #     config=config
+    # )
+    train_dataset = DynamicCalculatedContrastiveDataset(
+        data_dir=str(data_config.train_path),
+        config=config,
+        batch_pairs=config['data']['batch_size'],  # Here batch_pairs is defined in terms of pairs.
+        anchors_per_group=config['data'].get('anchors_per_group', 2),
+        pos_pairs_per_anchor=config['data'].get('pos_pairs_per_anchor', 4),
+        neg_pairs_per_anchor=config['data'].get('neg_pairs_per_anchor', 10),
+        min_groups_per_batch=config['data'].get('min_groups_per_batch', 8),
+        shuffle_files=True,
+        prefetch_factor=config['data'].get('prefetch_factor', 2),
+        max_active_files=2,
+        recycle_leftovers=True
     )
     
-    val_dataset = GroupedTreeDataset(
-        data_path=data_config.dev_path / "shard_000002.json",  # Adjust path as needed
-        config=config
+    val_dataset = DynamicCalculatedContrastiveDataset(
+        data_dir=str(data_config.dev_path),
+        config=config,
+        batch_pairs=config['data']['batch_size'],  # Here batch_pairs is defined in terms of pairs.
+        anchors_per_group=config['data'].get('anchors_per_group', 2),
+        pos_pairs_per_anchor=config['data'].get('pos_pairs_per_anchor', 4),
+        neg_pairs_per_anchor=config['data'].get('neg_pairs_per_anchor', 10),
+        min_groups_per_batch=config['data'].get('min_groups_per_batch', 8),
+        shuffle_files=True,
+        prefetch_factor=config['data'].get('prefetch_factor', 2),
+        max_active_files=2,
+        recycle_leftovers=True
     )
     
     # Initialize model and optimizer
