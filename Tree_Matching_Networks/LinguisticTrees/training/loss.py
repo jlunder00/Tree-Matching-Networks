@@ -123,22 +123,22 @@ class InfoNCELoss(BaseLoss):
             batch_info: BatchInfo object with anchor/positive/negative indices
         """
         # Extract pairs
-        anchor_embeddings = embeddings[batch_info.anchor_indices]
+        tree1_embeddings = embeddings[[item[0] for item in batch_info.pair_indices]]
+        tree2_embeddings = embeddings[[item[1] for item in batch_info.pair_indices]]
         
         # Compute similarities between all pairs
         sim_matrix = F.cosine_similarity(
-            anchor_embeddings.unsqueeze(1),  # [n_anchors, 1, hidden_dim]
-            embeddings.unsqueeze(0),         # [1, n_total, hidden_dim]
+            tree1_embeddings.unsqueeze(1),  # [n_anchors, 1, hidden_dim]
+            tree2_embeddings.unsqueeze(0),         # [1, n_total, hidden_dim]
             dim=2
         )
         sim_matrix = sim_matrix / self.temperature
         
         # Create labels matrix - 1 for positive pairs, 0 for all else
-        labels = torch.zeros_like(sim_matrix)
-        for anchor_idx, pos_idx in batch_info.positive_pairs:
-            # Find position of this anchor in anchor list
-            anchor_pos = batch_info.anchor_indices.index(anchor_idx)
-            labels[anchor_pos, pos_idx] = 1
+        labels = torch.zeros_like(sim_matrix, device=sim_matrix.device)
+        positive_rows = torch.tensor([i for i, j, flag in batch_info.pair_indices if flag], dtype=torch.long)
+        positive_cols = torch.tensor([j for i, j, flag in batch_info.pair_indices if flag], dtype=torch.long)
+        labels[positive_rows, positive_cols] = 1
             
         # InfoNCE loss
         loss = F.cross_entropy(sim_matrix, labels)

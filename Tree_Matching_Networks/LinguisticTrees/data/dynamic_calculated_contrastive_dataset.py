@@ -8,6 +8,7 @@ from collections import defaultdict, deque
 from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Tuple, Dict, Optional
+import copy
 
 import torch
 from torch.utils.data import IterableDataset, DataLoader, get_worker_info
@@ -33,8 +34,8 @@ def get_feature_config(config: Dict) -> Dict:
             'do_not_store_word_embeddings': False,
             'is_runtime': True,
             'shard_size': config.get('cache_shard_size', 10000),
-            # 'num_workers': config.get('cache_workers', 1),
-            'num_workers': 1,
+            'num_workers': config.get('cache_workers', 4),
+            # 'num_workers': 1,
         },
         'verbose': config.get('verbose', 'normal')
     }
@@ -48,6 +49,7 @@ class BatchInfo:
     anchor_indices: List[int]           # global indices of anchor trees in the final list
     positive_pairs: List[Tuple[int, int]]  # (anchor index, positive candidate index)
     negative_pairs: List[Tuple[int, int]]  # (anchor index, negative candidate index)
+    pair_indices: List[Tuple[int, int, bool]]
 
 
 class DynamicCalculatedContrastiveDataset(IterableDataset):
@@ -90,7 +92,8 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
                  shuffle_files: bool = False,
                  prefetch_factor: int = 2,
                  max_active_files: int = 2,
-                 recycle_leftovers: bool = True):
+                 recycle_leftovers: bool = True,
+                 model_type: str = 'matching'):
         """
         Args:
           data_dir: Directory containing the shard JSON files.
@@ -114,6 +117,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         self.max_active_files = max_active_files
         self.recycle_leftovers = recycle_leftovers
         self.requires_embeddings = True
+        self.model_type = model_type
 
         # Calculate the number of anchors and groups required.
         # Each anchor will yield (P + N) pairs.
@@ -149,12 +153,12 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
                     })
                     
         # # Initialize feature extractor if needed.
-        # with open(self.data_files[0]) as f:
-        #     data = json.load(f)
-        #     self.requires_embeddings = data.get('requires_word_embeddings', False)
-        #     if self.requires_embeddings:
-        #         feat_config = get_feature_config(config)
-        #         self.embedding_extractor = FeatureExtractor(feat_config)
+        with open(self.data_files[0]) as f:
+            data = json.load(f)
+            self.requires_embeddings = data.get('requires_word_embeddings', False)
+            if self.requires_embeddings:
+                feat_config = get_feature_config(config)
+                self.embedding_extractor = FeatureExtractor(feat_config)
         
         # A buffer mapping group_id to a dict { 'group_idx': int, 'trees': [tree_item, ...] }
         self.group_buffers: Dict[str, Dict] = {}
@@ -222,6 +226,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
     def _fill_buffer(self):
         """Keep loading files until we have at least the required number of groups with enough trees."""
         while len([g for g in self.group_buffers.values() if len(g['trees']) >= self.R]) < self.groups_needed and self.file_queue:
+            print('populating buffer...')
             file = self.file_queue.popleft()
             self._add_groups_from_file(file)
             # Optionally clean up if too many active files
@@ -278,8 +283,10 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
                 anchor_indices.append(global_anchor_idx)
                 # For positive pairs, assign the P positive candidates for this anchor.
                 pos_candidates = group_trees[self.A + i*self.P : self.A + (i+1)*self.P]
-                for pos_tree in pos_candidates:
-                    global_pos_idx = batch_trees.index(pos_tree)  # not efficient but groups are small
+                # for pos_tree in pos_candidates:
+                #     global_pos_idx = batch_trees.index(pos_tree)  # not efficient but groups are small
+                for j in range(len(pos_candidates)):
+                    global_pos_idx = start + self.A + i * self.P + j
                     positive_pairs.append((global_anchor_idx, global_pos_idx))
         
         # Build the negative pool: for each anchor, pool together all trees from groups other than its own.
@@ -301,16 +308,59 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
             for neg_idx in sampled:
                 negative_pairs.append((anchor_idx, neg_idx))
         
-        # Finally, convert the list of trees to GraphData.
-        graphs = convert_tree_to_graph_data([item['tree'] for item in batch_trees])
         batch_info = BatchInfo(
             group_indices=batch_group_indices,
             group_ids=batch_group_ids,
             anchor_indices=anchor_indices,
             positive_pairs=positive_pairs,
-            negative_pairs=negative_pairs
+            negative_pairs=negative_pairs,
+            pair_indices = []
         )
+
+        if self.model_type == 'embedding': #format as pairs for graph matching model with attention network
+            # Finally, convert the list of trees to GraphData.
+            graphs = convert_tree_to_graph_data([item['tree'] for item in batch_trees])
+            # graphs = [convert_tree_to_graph_data([item['tree']]) for item in batch_trees] #this would be a graph data object per tree
+        else: #do pairs for cross attention model
+            # For each anchor, we need its tree multiple times (for each pos/neg pair)
+            all_batch_graphs = []
+            all_pair_info = []  # Track which indices form pairs
+            
+                # Add positive pairs
+            for pair_idx, (tree_idx1, tree_idx2) in enumerate(batch_info.positive_pairs):
+                tree1, tree2 = copy.deepcopy(batch_trees[tree_idx1]['tree']), copy.deepcopy(batch_trees[tree_idx2]['tree'])
+                # We need a deep copy if the same tree appears multiple times
+                all_batch_graphs.append(convert_tree_to_graph_data([tree1, tree2]))
+                # Record these will be paired with graph_idx [2i, 2i+1]
+                all_pair_info.append((pair_idx * 2, pair_idx * 2 + 1, True))  # True = positive pair
+                
+            # Add negative pairs  
+            for pair_idx, (tree_idx1, tree_idx2) in enumerate(batch_info.negative_pairs):
+                tree1, tree2 = copy.deepcopy(batch_trees[tree_idx1]['tree']), copy.deepcopy(batch_trees[tree_idx2]['tree'])
+                # We need a deep copy if the same tree appears multiple times
+                all_batch_graphs.append(convert_tree_to_graph_data([tree1, tree2]))
+                # Record these will be paired with graph_idx [2i, 2i+1]
+                all_pair_info.append((pair_idx * 2, pair_idx * 2 + 1, False))  # False = negative pair
+
+            # Convert all trees into single GraphData with correct indexing
+            # graphs = convert_tree_to_graph_data(all_batch_trees)  # This creates sequential graph_idx
+            graphs = self.collate_graphs(all_batch_graphs)
+            
+            # Update batch info with the new indices
+            batch_info.pair_indices = all_pair_info
+
         return graphs, batch_info
+
+    def collate_graphs(self, graphs):
+        graph_data = GraphData(
+            from_idx=torch.cat([b.from_idx for b in graphs]),
+            to_idx=torch.cat([b.to_idx for b in graphs]),
+            node_features=torch.cat([b.node_features for b in graphs]),
+            edge_features=torch.cat([b.edge_features for b in graphs]),
+            graph_idx=torch.cat([b.graph_idx for b in graphs]),
+            n_graphs=sum(b.n_graphs for b in graphs)
+        )
+        return graph_data
 
     def __iter__(self):
         """Iterate over the dataset, yielding (GraphData, BatchInfo) batches."""
@@ -320,14 +370,6 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
             files = list(self.data_files)
             files = files[worker_info.id::worker_info.num_workers]
             self.file_queue = deque(files)
-            if self.requires_embeddings and not hasattr(self, "embedding_extractor"):
-                feat_config = get_feature_config(self.config)
-                self.embedding_extractor = FeatureExtractor(feat_config)
-        else:
-            # In single-worker mode, ensure the extractor is initialized.
-            if self.requires_embeddings and not hasattr(self, "embedding_extractor"):
-                feat_config = get_feature_config(self.config)
-                self.embedding_extractor = FeatureExtractor(feat_config)
         # Loop until files are exhausted and buffer cannot be refilled.
         while True:
             self._fill_buffer()
@@ -364,6 +406,6 @@ def get_dynamic_calculated_dataloader(dataset: DynamicCalculatedContrastiveDatas
         num_workers=num_workers,
         pin_memory=pin_memory,
         prefetch_factor=dataset.prefetch_factor,
-        persistent_workers=True
+        persistent_workers=True if num_workers > 0 else False
     )
 
