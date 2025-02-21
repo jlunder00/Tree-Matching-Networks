@@ -16,9 +16,9 @@ from torch.utils.data import IterableDataset, DataLoader, get_worker_info
 # Import your feature extractor and tree-to-graph conversion utility.
 from TMN_DataGen import FeatureExtractor
 try:
-    from .data_utils import convert_tree_to_graph_data, GraphData
+    from .data_utils import convert_tree_to_graph_data, GraphData, get_min_groups_trees_per_group, get_min_groups_pairs_per_anchor
 except ImportError:
-    from data_utils import convert_tree_to_graph_data, GraphData
+    from data_utils import convert_tree_to_graph_data, GraphData, get_min_groups_trees_per_group, get_min_groups_pairs_per_anchor
 
 logger = logging.getLogger(__name__)
 
@@ -85,10 +85,10 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
                  data_dir: str,
                  config: Dict,
                  batch_pairs: int,
-                 anchors_per_group: int = 2,
-                 pos_pairs_per_anchor: int = 2,
-                 neg_pairs_per_anchor: int = 4,
-                 min_groups_per_batch: int = 2,
+                 anchors_per_group: int = 1,
+                 pos_pairs_per_anchor: int = 1,
+                 # neg_pairs_per_anchor: int = 4,
+                 # min_groups_per_batch: int = 2,
                  shuffle_files: bool = False,
                  prefetch_factor: int = 2,
                  max_active_files: int = 2,
@@ -110,8 +110,8 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         self.batch_pairs = batch_pairs
         self.A = anchors_per_group
         self.P = pos_pairs_per_anchor
-        self.N = neg_pairs_per_anchor
-        self.min_groups = min_groups_per_batch
+        # self.N = neg_pairs_per_anchor
+        # self.min_groups = min_groups_per_batch
         self.shuffle_files = shuffle_files
         self.prefetch_factor = prefetch_factor
         self.max_active_files = max_active_files
@@ -119,10 +119,13 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         self.requires_embeddings = True
         self.model_type = model_type
 
+        self.groups_needed = get_min_groups_pairs_per_anchor(self.A, self.P, batch_pairs)
+        #need to get the number of negative pairs per group based on this
+
         # Calculate the number of anchors and groups required.
         # Each anchor will yield (P + N) pairs.
         self.total_anchors_needed = math.ceil(self.batch_pairs / (self.P + self.N))
-        self.groups_needed = max(self.min_groups, math.ceil(self.total_anchors_needed / self.A))
+        # self.groups_needed = max(self.min_groups, math.ceil(self.total_anchors_needed / self.A))
         # For positive pairing within a group, each group must supply:
         self.R = self.A * (1 + self.P)  # trees per group
 
@@ -165,6 +168,9 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         # A deque of files not yet processed.
         self.file_queue = deque(self.data_files)
         self.active_files = deque(maxlen=self.max_active_files)
+
+        
+        
     
     def _load_embeddings(self, tree: Dict) -> torch.Tensor:
         """Load or generate embeddings for a tree if required."""

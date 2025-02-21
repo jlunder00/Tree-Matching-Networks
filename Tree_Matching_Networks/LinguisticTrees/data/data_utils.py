@@ -1,6 +1,7 @@
 #data/data_utils.py
 import torch
 from collections import namedtuple
+import math
 from typing import List, Dict
 
 GraphData = namedtuple('GraphData', [
@@ -91,3 +92,35 @@ def convert_tree_to_graph_data(trees: List[Dict]) -> GraphData:
         graph_idx=torch.tensor(all_graph_idx),
         n_graphs=len(trees)
     )
+
+def get_min_groups_trees_per_group(anchors_per_group, positive_pair_trees_per_group, batch_size):
+    '''
+    Given the number of anchors per group, and the number of non anchor items taken from each group,
+    find the required number of groups to satisfy batch_size pairs.
+
+    quadratic equation: a * (a+b) * g^2 - a*g - batch_size = 0
+    '''
+
+    a, b = anchors_per_group, positive_pair_trees_per_group
+    
+    discriminant = a**2 + 4 * a * (a + b) * batch_size
+
+    #take only the positive solution
+    g = (a + math.sqrt(discriminant))/(2 * a * (a + b))
+
+    return math.ceil(g)
+
+def get_min_groups_pairs_per_anchor(anchors_per_group, positive_pairs_per_anchor, batch_size):
+    '''
+    Given the number of anchors per group, the number of positive pairs allowed per group,
+    find the required number of groups to satisfy batch_size pairs
+    '''
+    
+    a, b = anchors_per_group, positive_pairs_per_anchor
+
+    discriminant = a**4 + 4 * a * (a + b) * batch_size
+
+    g = (a**2 + math.sqrt(discriminant)) / (2 * a * (a + b))
+    return math.ceil(g)
+
+
