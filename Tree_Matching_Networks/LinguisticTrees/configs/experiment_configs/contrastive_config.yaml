@@ -9,23 +9,23 @@ model:
   edge_hidden_dim: 512
   n_prop_layers: 5
   dropout: 0.2
-  temperature: 0.07
+  temperature: 0.5
 
 data:
   dataset_type: wikiqs
-  batch_size: 512
-  pos_pairs_per_anchor: 4
+  batch_size: 750
+  pos_pairs_per_anchor: 1
   neg_pairs_per_anchor: 10
   min_groups_per_batch: 8
-  anchors_per_group: 2
-  num_workers: 0
-  prefetch_factor: null
+  anchors_per_group: 1
+  num_workers: 4
+  prefetch_factor: 1
 
 embedding_cache_dir: '/home/jlunder/research/TMN_DataGen/embedding_cache4/'
 use_gpu: false
 
 train:
-  learning_rate: 0.0005
+  learning_rate: 0.00001
   weight_decay: 0.00001
   n_epochs: 100
   patience: 10

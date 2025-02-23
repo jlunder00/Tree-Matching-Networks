@@ -1,4 +1,5 @@
 # data/dynamic_calculated_contrastive_dataset.py
+import numpy as np
 import json
 import gc
 import math
@@ -84,7 +85,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
     def __init__(self, 
                  data_dir: str,
                  config: Dict,
-                 batch_pairs: int,
+                 batch_pairs: int, #either maximum or minimum batch size based on if get min groups is passed ceil = True or not. Max if false, min if true.
                  anchors_per_group: int = 1,
                  pos_pairs_per_anchor: int = 1,
                  # neg_pairs_per_anchor: int = 4,
@@ -118,16 +119,25 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         self.recycle_leftovers = recycle_leftovers
         self.requires_embeddings = True
         self.model_type = model_type
+        self._batches_provided = 0
 
-        self.groups_needed = get_min_groups_pairs_per_anchor(self.A, self.P, batch_pairs)
+        #adjusts the batch size to use the entirety of the calculated integer number of groups. Rounding up with ceil = True means
+        #batch size will be >= what was passed, otherwise it will be <= what was passed
+        self.groups_needed, self.batch_pairs = get_min_groups_pairs_per_anchor(self.A, self.P, self.batch_pairs)
         #need to get the number of negative pairs per group based on this
 
-        # Calculate the number of anchors and groups required.
-        # Each anchor will yield (P + N) pairs.
-        self.total_anchors_needed = math.ceil(self.batch_pairs / (self.P + self.N))
-        # self.groups_needed = max(self.min_groups, math.ceil(self.total_anchors_needed / self.A))
         # For positive pairing within a group, each group must supply:
-        self.R = self.A * (1 + self.P)  # trees per group
+        self.R = self.A + self.P  # trees per group, need the number of anchors plus the number of positive pairs, eg, one more positive pair per anchor means one more non anchor tree from the group. P > 0 always.
+        #R is the number of trees provided by each group, and P is the number of positive pairs per anchor, so we can find how many positive pairs that makes per group, and then use the number of groups needed to find the overall number of positive pairs
+        self.positive_pairs_per_group = self.P * self.A
+        self.positive_pairs_total = self.positive_pairs_per_group * self.groups_needed
+        #we know the adjusted batch size from using the found number of groups and the number of positive pairs, so we can find the number of negative pairs
+        self.N = self.batch_pairs - self.positive_pairs_total
+
+        # Calculate the number of anchors required
+        self.total_anchors_needed = self.A * self.groups_needed
+
+        #all we need to know is the number of trees each group has to provide, which are anchors, which are not, since we have the number of groups
 
         # Gather shard files (assume naming like part_*_shard_*.json)
         self.data_files = sorted(
@@ -239,6 +249,32 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
             if len(self.active_files) >= self.max_active_files:
                 self.active_files.popleft()
                 gc.collect()
+
+    def _randomly_select_trees(self, trees, n):
+        arr = np.array(trees, dtype=object)
+
+        valid_indices = np.where(arr != None)[0]
+
+        selected_indices = np.random.choice(valid_indices, size=n, replace=False)
+        selected_trees, indices = arr[selected_indices].tolist(), selected_indices.tolist()
+        return selected_trees, indices
+
+    def reset_epoch(self):
+        """Reset dataset state for new epoch"""
+        # Reset file queue
+        if not self.file_queue:
+            self.file_queue = deque(self.data_files)
+            if self.shuffle_files:
+                files = list(self.file_queue)
+                random.shuffle(files)
+                self.file_queue = deque(files)
+        
+        # Clear buffers
+        self.group_buffers.clear()
+        self.active_files.clear()
+        
+        # Reset batch count
+        self._batches_provided = 0
     
     def _generate_batch(self) -> Optional[Tuple[GraphData, BatchInfo]]:
         """
@@ -251,6 +287,9 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         
         # Randomly select the required number of groups.
         selected = random.sample(eligible_groups, self.groups_needed)
+        selected_gids = [gid for gid, info in selected]
+        eligable_groups_not_already_selected_not_np = [(gid, info) for gid, info in eligible_groups if gid not in selected_gids]
+        eligable_groups_not_already_selected = np.array(eligable_groups_not_already_selected_not_np)
         batch_trees = []         # All trees that will be used in this batch.
         batch_group_ids = []     # Track group ids in order.
         batch_group_indices = [] # Track corresponding numeric group indices.
@@ -263,20 +302,52 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         group_start_indices = {}  # map group_id to the starting global index for its trees in this batch.
         for gid, info in selected:
             trees = info['trees']
-            used = trees[:self.R]
-            # Remove used trees from the buffer.
-            if len(trees) > self.R:
-                self.group_buffers[gid]['trees'] = trees[self.R:]
-            else:
+            num_trees_not_none = len([t for t in trees if t is not None])
+            # Remove used trees from the buffer.-
+            new_group_index = -1
+            while num_trees_not_none < self.R: #there werent enough trees in the group beforehand means in the first place, drop the group AND SELECT A NEW ONE
+                print(f"Not enough trees in group {gid} beforehand! dropping and trying another")
+                del self.group_buffers[gid]
+                if new_group_index >= 0:
+                    print(f"deleting {gid} from eligable replacement groups")
+                    eligable_groups_not_already_selected = np.delete(eligable_groups_not_already_selected, new_group_index)
+                if len(eligable_groups_not_already_selected) < 1:
+                    print("No more eligable groups!")
+                    return None
+                
+                eligable_indexes = np.where(eligable_groups_not_already_selected)[0]
+                new_group_index = np.random.choice(eligable_indexes, 1, replace=False)
+                gid, info = eligable_groups_not_already_selected[new_group_index]
+                trees = info['trees']
+                num_trees_not_none = len([t for t in trees if t is not None])
+
+            used, used_indices = self._randomly_select_trees(copy.deepcopy(trees), self.R)
+            # used = trees[:self.R]
+            trees_after = [trees[i] if i not in used_indices else None for i in range(len(trees))]
+            num_trees_not_none_after = len([t for t in trees_after if t is not None])
+            if num_trees_not_none_after > self.R: #dont need to worry about recycling
+                self.group_buffers[gid]['trees'] = trees_after
+
+            elif not self.recycle_leftovers or len(trees_after) == 0: #dont ever recycle if we cleanly used all the trees. delete once used entirely
                 # If not recycling leftovers, remove the group entirely.
-                if not self.recycle_leftovers:
+                del self.group_buffers[gid]
+            else: #if recycling leftovers, figure out how many to add back and add them back
+                difference = self.R - num_trees_not_none_after # number of trees we need to keep to recycle with enough for another selection
+                if difference > len(used_indices): #not enough to make up the difference (should be mathematically impossible but oh well)
                     del self.group_buffers[gid]
-                else:
-                    self.group_buffers[gid]['trees'] = []
+                
+                #add back as many as we need to make it recyclable (dont need to randomize as selection was random)
+                add_back, add_back_indices = [copy.deepcopy(t) for t in used[:difference]], used_indices[:difference]
+                for idx, tree in zip(add_back_indices, add_back):
+                    trees_after[idx] = tree
+
+                self.group_buffers[gid]['trees'] = trees_after 
             group_start_indices[gid] = len(batch_trees)
             batch_trees.extend(used)
             batch_group_ids.append(gid)
             batch_group_indices.append(info['group_idx'])
+            if new_group_index >= 0:
+                eligable_groups_not_already_selected = np.delete(eligable_groups_not_already_selected, new_group_index)
         
         # Now, within each group’s segment in batch_trees, designate the first A as anchors
         # and partition the following A*P trees as positive candidates (each anchor gets P positives).
@@ -310,8 +381,8 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
             neg_candidates = [i for i, gid in global_group_assignment.items() if gid != anchor_gid]
             if not neg_candidates:
                 continue
-            sampled = random.sample(neg_candidates, min(self.N, len(neg_candidates)))
-            for neg_idx in sampled:
+            # sampled = random.sample(neg_candidates, min(self.N, len(neg_candidates)))
+            for neg_idx in neg_candidates:
                 negative_pairs.append((anchor_idx, neg_idx))
         
         batch_info = BatchInfo(
@@ -376,11 +447,14 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
             files = list(self.data_files)
             files = files[worker_info.id::worker_info.num_workers]
             self.file_queue = deque(files)
+
+        max_batches = self.config.get('max_batches_per_epoch', 1000)
         # Loop until files are exhausted and buffer cannot be refilled.
-        while True:
+        while self._batches_provided < max_batches:
             self._fill_buffer()
             batch = self._generate_batch()
             if batch is not None:
+                self._batches_provided += 1
                 yield batch
             else:
                 # If no batch can be produced and no more files remain, exit.
@@ -393,8 +467,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
     def __len__(self):
         """A rough length estimate (number of pairs) based on counts."""
         total_trees = sum(sum(fc['trees_per_group']) for fc in self.file_counts)
-        est_pairs_per_tree = self.P + self.N
-        return total_trees // est_pairs_per_tree
+        return total_trees // self.batch_pairs
 
 
 def get_dynamic_calculated_dataloader(dataset: DynamicCalculatedContrastiveDataset,

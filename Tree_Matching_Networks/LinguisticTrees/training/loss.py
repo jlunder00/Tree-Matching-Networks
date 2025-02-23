@@ -122,23 +122,31 @@ class InfoNCELoss(BaseLoss):
             embeddings: Graph embeddings for all trees [n_total, hidden_dim]
             batch_info: BatchInfo object with anchor/positive/negative indices
         """
+        print("Num positive pairs:", sum(1 for _,_,flag in batch_info.pair_indices if flag))
+        print("First few pair indices:", batch_info.pair_indices[:5])
         # Extract pairs
         tree1_embeddings = embeddings[[item[0] for item in batch_info.pair_indices]]
         tree2_embeddings = embeddings[[item[1] for item in batch_info.pair_indices]]
         
         # Compute similarities between all pairs
-        sim_matrix = F.cosine_similarity(
+        raw_sim_matrix = F.cosine_similarity(
             tree1_embeddings.unsqueeze(1),  # [n_anchors, 1, hidden_dim]
             tree2_embeddings.unsqueeze(0),         # [1, n_total, hidden_dim]
             dim=2
         )
-        sim_matrix = sim_matrix / self.temperature
-        
+        sim_matrix = raw_sim_matrix / self.temperature
         # Create labels matrix - 1 for positive pairs, 0 for all else
         labels = torch.zeros_like(sim_matrix, device=sim_matrix.device)
-        positive_rows = torch.tensor([i for i, j, flag in batch_info.pair_indices if flag], dtype=torch.long)
-        positive_cols = torch.tensor([j for i, j, flag in batch_info.pair_indices if flag], dtype=torch.long)
+        positive_rows = torch.tensor([i for i, j, flag in batch_info.pair_indices if flag], dtype=torch.long, device=sim_matrix.device)
+        positive_cols = torch.tensor([j for i, j, flag in batch_info.pair_indices if flag], dtype=torch.long, device=sim_matrix.device)
         labels[positive_rows, positive_cols] = 1
+        print("Sim matrix shape:", sim_matrix.shape)  
+        print("Labels shape:", labels.shape)
+        print("Sample similarities and labels:")
+        for i in range(min(5, len(positive_rows))):
+            r, c = positive_rows[i], positive_cols[i]
+            print(f"Anchor {i} positive pair: {sim_matrix[r,c]:.3f}")
+            print(f"Anchor {i} negative means: {sim_matrix[r,:].mean():.3f}")
             
         # InfoNCE loss
         loss = F.cross_entropy(sim_matrix, labels)
@@ -148,6 +156,8 @@ class InfoNCELoss(BaseLoss):
             metrics = {
                 'pos_similarity': sim_matrix[labels == 1].mean(),
                 'neg_similarity': sim_matrix[labels == 0].mean(),
+                'raw_pos_sim': raw_sim_matrix[labels == 1].mean(),
+                'raw_neg_sim': raw_sim_matrix[labels == 0].mean(),
             }
             
         return loss, None, metrics

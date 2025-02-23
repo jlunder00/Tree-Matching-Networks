@@ -173,5 +173,11 @@ cython_debug/
 
 experiments/entailment_*
 experiments/similarity_*
+experiments/contrastive_*
 
 *.pyc
+
+Tree_Matching_Networks/LinguisticTrees/experiments/experiments/
+Tree_Matching_Networks/LinguisticTrees/experiments/experiments/*
+Tree_Matching_Networks/LinguisticTrees/experiments/contrastive_*/
+Tree_Matching_Networks/LinguisticTrees/experiments/contrastive_*/*

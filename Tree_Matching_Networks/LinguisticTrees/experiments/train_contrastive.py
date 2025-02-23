@@ -77,13 +77,13 @@ def train_contrastive(args):
         data_dir=str(data_config.train_path),
         config=config,
         batch_pairs=config['data']['batch_size'],  # Here batch_pairs is defined in terms of pairs.
-        anchors_per_group=config['data'].get('anchors_per_group', 2),
-        pos_pairs_per_anchor=config['data'].get('pos_pairs_per_anchor', 4),
-        neg_pairs_per_anchor=config['data'].get('neg_pairs_per_anchor', 10),
-        min_groups_per_batch=config['data'].get('min_groups_per_batch', 8),
+        anchors_per_group=config['data'].get('anchors_per_group', 1),
+        pos_pairs_per_anchor=config['data'].get('pos_pairs_per_anchor', 1),
+        # neg_pairs_per_anchor=config['data'].get('neg_pairs_per_anchor', 10),
+        # min_groups_per_batch=config['data'].get('min_groups_per_batch', 8),
         shuffle_files=True,
         prefetch_factor=config['data'].get('prefetch_factor', 2),
-        max_active_files=2,
+        max_active_files=4,
         recycle_leftovers=True
     )
     
@@ -91,13 +91,13 @@ def train_contrastive(args):
         data_dir=str(data_config.dev_path),
         config=config,
         batch_pairs=config['data']['batch_size'],  # Here batch_pairs is defined in terms of pairs.
-        anchors_per_group=config['data'].get('anchors_per_group', 2),
-        pos_pairs_per_anchor=config['data'].get('pos_pairs_per_anchor', 4),
-        neg_pairs_per_anchor=config['data'].get('neg_pairs_per_anchor', 10),
-        min_groups_per_batch=config['data'].get('min_groups_per_batch', 8),
+        anchors_per_group=config['data'].get('anchors_per_group', 1),
+        pos_pairs_per_anchor=config['data'].get('pos_pairs_per_anchor', 1),
+        # neg_pairs_per_anchor=config['data'].get('neg_pairs_per_anchor', 10),
+        # min_groups_per_batch=config['data'].get('min_groups_per_batch', 8),
         shuffle_files=True,
         prefetch_factor=config['data'].get('prefetch_factor', 2),
-        max_active_files=2,
+        max_active_files=4,
         recycle_leftovers=True
     )
     

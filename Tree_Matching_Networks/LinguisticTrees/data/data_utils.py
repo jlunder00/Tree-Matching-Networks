@@ -93,7 +93,7 @@ def convert_tree_to_graph_data(trees: List[Dict]) -> GraphData:
         n_graphs=len(trees)
     )
 
-def get_min_groups_trees_per_group(anchors_per_group, positive_pair_trees_per_group, batch_size):
+def get_min_groups_trees_per_group(anchors_per_group, positive_pair_trees_per_group, batch_size, ceil=False):
     '''
     Given the number of anchors per group, and the number of non anchor items taken from each group,
     find the required number of groups to satisfy batch_size pairs.
@@ -108,12 +108,18 @@ def get_min_groups_trees_per_group(anchors_per_group, positive_pair_trees_per_gr
     #take only the positive solution
     g = (a + math.sqrt(discriminant))/(2 * a * (a + b))
 
-    return math.ceil(g)
+    g = math.floor(g) if not ceil else math.ceil(g)
+    total_pairs = a * (a+b) * g^2 - a*g
+    return g, total_pairs
 
-def get_min_groups_pairs_per_anchor(anchors_per_group, positive_pairs_per_anchor, batch_size):
+def get_min_groups_pairs_per_anchor(anchors_per_group, positive_pairs_per_anchor, batch_size, ceil=False):
     '''
     Given the number of anchors per group, the number of positive pairs allowed per group,
     find the required number of groups to satisfy batch_size pairs
+
+    a(a+b)g^2 - a^2 * g - batch_size = 0
+    or rather
+    T(g) = total pairs in terms of groups = a(a+b)g^2 - a^2 * g
     '''
     
     a, b = anchors_per_group, positive_pairs_per_anchor
@@ -121,6 +127,10 @@ def get_min_groups_pairs_per_anchor(anchors_per_group, positive_pairs_per_anchor
     discriminant = a**4 + 4 * a * (a + b) * batch_size
 
     g = (a**2 + math.sqrt(discriminant)) / (2 * a * (a + b))
-    return math.ceil(g)
+
+    g = math.floor(g) if not ceil else math.ceil(g) #set ceil to true to include potentially more pairs than original batch size
+    total_pairs = a*(a+b)*(g**2) - (a**2)*g #now find the adjusted total pairs generated from this many groups
+    return g, total_pairs
+
 
 

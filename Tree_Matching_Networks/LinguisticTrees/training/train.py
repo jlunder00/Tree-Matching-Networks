@@ -320,7 +320,9 @@ def train_epoch_contrastive(model, dataset, optimizer, loss_fn, config, epoch):
         'batch_time': 0.0,
         'data_time': 0.0,
         'pos_similarity': 0.0, 
-        'neg_similarity': 0.0
+        'neg_similarity': 0.0,
+        'raw_pos_sim': 0.0,
+        'raw_neg_sim': 0.0
     }
     
     # Initial memory check
@@ -362,7 +364,9 @@ def train_epoch_contrastive(model, dataset, optimizer, loss_fn, config, epoch):
                 'loss': f'{loss:.4f}',
                 'time': f'{batch_time:.3f}s',
                 'pos_sim': f"{batch_metrics['pos_similarity']:.4f}",
-                'neg_sim': f"{batch_metrics['neg_similarity']:.4f}"
+                'neg_sim': f"{batch_metrics['neg_similarity']:.4f}",
+                'raw_pos_sim': f"{batch_metrics['raw_pos_sim']:.4f}",
+                'raw_neg_sim': f"{batch_metrics['raw_neg_sim']:.4f}"
             }
             pbar.set_postfix(progress)
             
