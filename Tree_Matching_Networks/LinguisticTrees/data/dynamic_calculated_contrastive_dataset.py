@@ -94,6 +94,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
                  prefetch_factor: int = 2,
                  max_active_files: int = 2,
                  recycle_leftovers: bool = True,
+                 allow_cross_dataset_negatives: bool = True,
                  model_type: str = 'matching'):
         """
         Args:
@@ -105,8 +106,14 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
           neg_pairs_per_anchor (N): Number of negative pairs per anchor.
           min_groups_per_batch: Minimum number of groups required in a batch.
           recycle_leftovers: If True, leftover trees that do not meet R are kept for future batches.
+          allow_cross_dataset_negatives: Allow negatives from other datasets.
+          model_type: 'matching' or 'embedding'
         """
-        self.data_dir = Path(data_dir)
+        # Convert single directory to list
+        if isinstance(data_dir, str):
+            self.data_dirs = [Path(data_dir)]
+        else:
+            self.data_dirs = [Path(dir) for dir in data_dir]
         self.config = config
         self.batch_pairs = batch_pairs
         self.A = anchors_per_group
@@ -120,6 +127,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         self.requires_embeddings = True
         self.model_type = model_type
         self._batches_provided = 0
+        self.allow_cross_dataset_negatives = allow_cross_dataset_negatives
 
         #adjusts the batch size to use the entirety of the calculated integer number of groups. Rounding up with ceil = True means
         #batch size will be >= what was passed, otherwise it will be <= what was passed
@@ -140,15 +148,25 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         #all we need to know is the number of trees each group has to provide, which are anchors, which are not, since we have the number of groups
 
         # Gather shard files (assume naming like part_*_shard_*.json)
-        self.data_files = sorted(
-            [f for f in self.data_dir.glob("part_*_shard_*.json")
-             if not f.name.endswith('_counts.json')],
-            key=lambda x: (int(x.stem.split('_')[1]), int(x.stem.split('_shard_')[1]))
-        )
-        if not self.data_files:
-            self.data_files = sorted(self.data_dir.glob("part_*.json"))
+        self.data_files = []
+        for data_dir in self.data_dirs:
+            files = sorted(
+                [f for f in data_dir.glob("part_*_shard_*.json")
+                 if not f.name.endswith('_counts.json')],
+                key=lambda x: (int(x.stem.split('_')[1]), int(x.stem.split('_shard_')[1]))
+            )
+            if not self.data_files:
+                self.data_files = sorted(data_dir.glob("part_*.json"))
+            self.data_files.extend(files)
+            
         if self.shuffle_files:
             random.shuffle(self.data_files)
+
+        # Store dataset origin for each file
+        self.file_to_dataset = {}
+        for data_dir in self.data_dirs:
+            for file in [f for f in self.data_files if str(f).startswith(str(data_dir))]:
+                self.file_to_dataset[file] = data_dir.name
         
         # Load counts from _counts files (used only for __len__ estimation)
         self.file_counts = []
@@ -211,6 +229,8 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
             return
         
         self.active_files.append(file)
+        dataset_origin = self.file_to_dataset.get('file', 'unknown')
+
         for group in data.get('groups', []):
             if not group.get('trees'):
                 continue
@@ -228,7 +248,8 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
                     'group_id': group_id,
                     'group_idx': group_idx,
                     'tree_idx': tree_idx,
-                    'text': tree.get('text', '')
+                    'text': tree.get('text', ''),
+                    'dataset': dataset_origin
                 })
             # If the group is already in the buffer, append new trees.
             if group_id in self.group_buffers:
@@ -236,7 +257,8 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
             else:
                 self.group_buffers[group_id] = {
                     'group_idx': group_idx,
-                    'trees': processed_trees
+                    'trees': processed_trees,
+                    'dataset': dataset_origin
                 }
     
     def _fill_buffer(self):
@@ -293,6 +315,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         batch_trees = []         # All trees that will be used in this batch.
         batch_group_ids = []     # Track group ids in order.
         batch_group_indices = [] # Track corresponding numeric group indices.
+        batch_datasets = []      # Track dataset origins
         anchor_indices = []      # Global indices of anchors in batch_trees.
         positive_pairs = []      # (anchor_index, positive_index)
         negative_pairs = []      # (anchor_index, negative_index)
@@ -300,8 +323,12 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         # For each selected group, remove R trees from its buffer.
         # In each group, the first A trees are anchors; the next A*P are positives.
         group_start_indices = {}  # map group_id to the starting global index for its trees in this batch.
+        group_to_dataset = {}
         for gid, info in selected:
             trees = info['trees']
+            dataset_origin = info.get('dataset', 'unknown')
+            group_to_dataset[gid] = dataset_origin
+            batch_datasets.append(dataset_origin)
             num_trees_not_none = len([t for t in trees if t is not None])
             # Remove used trees from the buffer.-
             new_group_index = -1
@@ -319,6 +346,8 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
                 new_group_index = np.random.choice(eligable_indexes, 1, replace=False)
                 gid, info = eligable_groups_not_already_selected[new_group_index]
                 trees = info['trees']
+                dataset_origin = info.get('dataset', 'unknown')
+                group_to_dataset[gid] = dataset_origin
                 num_trees_not_none = len([t for t in trees if t is not None])
 
             used, used_indices = self._randomly_select_trees(copy.deepcopy(trees), self.R)
@@ -369,16 +398,23 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         # Build the negative pool: for each anchor, pool together all trees from groups other than its own.
         # First, record which global index belongs to which group.
         global_group_assignment = {}
+        global_dataset_assignment = {}
         for gid, info in selected:
             start = group_start_indices[gid]
+            dataset = group_to_dataset[gid]
             for j in range(self.R):
                 global_group_assignment[start + j] = gid
+                global_dataset_assignment[start + j] = dataset
         
         # For each anchor, sample N negatives from trees whose group is different.
         for anchor_idx in anchor_indices:
             anchor_gid = global_group_assignment[anchor_idx]
+            anchor_dataset = global_dataset_assignment[anchor_idx]
             # Build negative candidate indices: all indices in batch_trees whose group != anchor_gid.
-            neg_candidates = [i for i, gid in global_group_assignment.items() if gid != anchor_gid]
+            if self.allow_cross_dataset_negatives:
+                neg_candidates = [i for i, gid in global_group_assignment.items() if gid != anchor_gid]
+            else:
+                neg_candidates = [i for i, gid in global_group_assignment.items() if gid != anchor_gid and global_dataset_assignment[i] == anchor_dataset]
             if not neg_candidates:
                 continue
             # sampled = random.sample(neg_candidates, min(self.N, len(neg_candidates)))
@@ -396,7 +432,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
 
         if self.model_type == 'embedding': #format as pairs for graph matching model with attention network
             # Finally, convert the list of trees to GraphData.
-            graphs = convert_tree_to_graph_data([item['tree'] for item in batch_trees])
+            all_batch_graphs = [convert_tree_to_graph_data([item['tree']]) for item in batch_trees]
             # graphs = [convert_tree_to_graph_data([item['tree']]) for item in batch_trees] #this would be a graph data object per tree
         else: #do pairs for cross attention model
             # For each anchor, we need its tree multiple times (for each pos/neg pair)
@@ -419,12 +455,13 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
                 # Record these will be paired with graph_idx [2i, 2i+1]
                 all_pair_info.append((pair_idx * 2, pair_idx * 2 + 1, False))  # False = negative pair
 
-            # Convert all trees into single GraphData with correct indexing
             # graphs = convert_tree_to_graph_data(all_batch_trees)  # This creates sequential graph_idx
-            graphs = self.collate_graphs(all_batch_graphs)
             
             # Update batch info with the new indices
             batch_info.pair_indices = all_pair_info
+            
+        # Convert all trees into single GraphData with correct indexing
+        graphs = self.collate_graphs(all_batch_graphs)
 
         return graphs, batch_info
 

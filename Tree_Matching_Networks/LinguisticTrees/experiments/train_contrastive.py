@@ -12,6 +12,7 @@ try:
     from ..configs.tree_data_config import TreeDataConfig
     from ..data import GroupedTreeDataset, DynamicCalculatedContrastiveDataset, get_dynamic_calculated_dataloader
     from ..models.tree_matching import TreeMatchingNet
+    from ..models.tree_embedding import TreeEmbeddingNet
     from ..training.experiment import ExperimentManager
     from ..training.train import train_epoch
     from ..training.validation import validate_epoch
@@ -21,6 +22,7 @@ except:
     from Tree_Matching_Networks.LinguisticTrees.configs.tree_data_config import TreeDataConfig
     from Tree_Matching_Networks.LinguisticTrees.data import GroupedTreeDataset, DynamicCalculatedContrastiveDataset, get_dynamic_calculated_dataloader
     from Tree_Matching_Networks.LinguisticTrees.models.tree_matching import TreeMatchingNet
+    from Tree_Matching_Networks.LinguisticTrees.models.tree_embedding import TreeEmbeddingNet
     from Tree_Matching_Networks.LinguisticTrees.training.experiment import ExperimentManager
     from Tree_Matching_Networks.LinguisticTrees.training.train import train_epoch
     from Tree_Matching_Networks.LinguisticTrees.training.validation import validate_epoch
@@ -48,10 +50,12 @@ def train_contrastive(args):
 
     # Data config
     data_config = TreeDataConfig(
-        dataset_type='wikiqs',
+        dataset_specs=config.get('data', {}).get('dataset_specs', 
+                                               [config.get('data', {}).get('dataset_type', 'wikiqs')]),
         task_type='info_nce',
-        use_sharded_train=True,  # No sharding for grouped dataset yet
-        use_sharded_validate=True
+        use_sharded_train=True,
+        use_sharded_validate=True,
+        allow_cross_dataset_negatives=config.get('data', {}).get('allow_cross_dataset_negatives', True)
     )
     
     # Initialize wandb
@@ -74,7 +78,7 @@ def train_contrastive(args):
     #     config=config
     # )
     train_dataset = DynamicCalculatedContrastiveDataset(
-        data_dir=str(data_config.train_path),
+        data_dir=[str(path) for path in data_config.train_paths],
         config=config,
         batch_pairs=config['data']['batch_size'],  # Here batch_pairs is defined in terms of pairs.
         anchors_per_group=config['data'].get('anchors_per_group', 1),
@@ -84,11 +88,13 @@ def train_contrastive(args):
         shuffle_files=True,
         prefetch_factor=config['data'].get('prefetch_factor', 2),
         max_active_files=4,
-        recycle_leftovers=True
+        allow_cross_dataset_negatives=data_config.allow_cross_dataset_negatives,
+        recycle_leftovers=True,
+        model_type=config['model'].get('model_type', 'matching')
     )
     
     val_dataset = DynamicCalculatedContrastiveDataset(
-        data_dir=str(data_config.dev_path),
+        data_dir=[str(path) for path in data_config.dev_paths],
         config=config,
         batch_pairs=config['data']['batch_size'],  # Here batch_pairs is defined in terms of pairs.
         anchors_per_group=config['data'].get('anchors_per_group', 1),
@@ -98,12 +104,18 @@ def train_contrastive(args):
         shuffle_files=True,
         prefetch_factor=config['data'].get('prefetch_factor', 2),
         max_active_files=4,
-        recycle_leftovers=True
+        allow_cross_dataset_negatives=data_config.allow_cross_dataset_negatives,
+        recycle_leftovers=True,
+        model_type=config['model'].get('model_type', 'matching')
     )
     
     # Initialize model and optimizer
     logger.info("Initializing model...")
-    model = TreeMatchingNet(config).to(config['device'])
+    model_type = config['model'].get('model_type', 'matching')
+    if model_type == 'embedding':
+        model = TreeEmbeddingNet(config).to(config['device'])
+    else:
+        model = TreeMatchingNet(config).to(config['device'])
     optimizer = torch.optim.Adam(
         model.parameters(),
         lr=config['train']['learning_rate'],

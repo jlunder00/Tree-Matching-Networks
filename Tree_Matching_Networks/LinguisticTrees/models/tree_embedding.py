@@ -1,42 +1,35 @@
 #models/tree_embedding.py
 import torch
 import torch.nn as nn
-from ...GMN.graphembeddingnetwork import GraphEncoder
+from ...GMN.graphembeddingnetwork import GraphEncoder, GraphEmbeddingNet, GraphAggregator
 
-class TreeEncoder(GraphEncoder):
-    """Tree-specific encoder for linguistic features"""
-    
-    def __init__(self, node_feature_dim, edge_feature_dim, hidden_dim):
+from .tree_encoder import TreeEncoder, TreeEncoderlg
+
+class TreeEmbeddingNet(GraphEmbeddingNet):
+    def __init__(self, config):
+        encoder = TreeEncoder(
+            node_feature_dim=config['model']['node_feature_dim'],  # 804
+            edge_feature_dim=config['model']['edge_feature_dim'],  # 22 
+            hidden_dim=config['model']['node_hidden_dim'],        # 256
+            dropout=config['model'].get('dropout', 0.1)
+        )
+        
+        # Create aggregator
+        aggregator = GraphAggregator(
+            node_hidden_sizes=[config['model']['node_hidden_dim']],
+            graph_transform_sizes=[config['model']['node_hidden_dim']],
+            input_size=[config['model']['node_hidden_dim']],
+            gated=True
+        )
+
         super().__init__(
-            node_feature_dim=node_feature_dim,
-            edge_feature_dim=edge_feature_dim,
-            node_hidden_sizes=[hidden_dim],
-            edge_hidden_sizes=[hidden_dim]
+            encoder = encoder,
+            aggregator = aggregator,
+            node_state_dim=config['model']['node_hidden_dim'],    # 256
+            edge_state_dim=config['model']['node_hidden_dim'],    # Should match node_hidden_dim
+            edge_hidden_sizes=[config['model']['node_hidden_dim'] // 2,  # Reduced intermediate sizes
+                             config['model']['node_hidden_dim']],  # Final size matches node_dim
+            node_hidden_sizes=[config['model']['node_hidden_dim']],
+            n_prop_layers=config['model']['n_prop_layers'],
+            share_prop_params=True  # Add parameter sharing to reduce memory
         )
-        
-        # Additional tree-specific layers
-        self.node_transform = nn.Sequential(
-            nn.Linear(node_feature_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(0.1)
-        )
-        
-        self.edge_transform = nn.Sequential(
-            nn.Linear(edge_feature_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(0.1)
-        )
-
-    def forward(self, node_features, edge_features=None):
-        """Enhanced encoding for linguistic features"""
-        # Initial encoding from base class
-        node_outputs, edge_outputs = super().forward(node_features, edge_features)
-        
-        # Additional tree-specific transformations
-        node_outputs = self.node_transform(node_outputs)
-        if edge_outputs is not None:
-            edge_outputs = self.edge_transform(edge_outputs)
-            
-        return node_outputs, edge_outputs
