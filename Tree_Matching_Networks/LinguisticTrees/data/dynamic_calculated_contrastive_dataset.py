@@ -466,12 +466,25 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         return graphs, batch_info
 
     def collate_graphs(self, graphs):
+        from_idx = []
+        to_idx = []
+        graph_idx = []
+        node_features = []
+        edge_features = []
+        for i, g in enumerate(graphs):
+            n_nodes = g.node_features.shape[0]
+            from_idx.append(g.from_idx)
+            to_idx.append(g.to_idx)
+            graph_idx.append(torch.ones(n_nodes, dtype=torch.int64)*i)
+            node_features.append(g.node_features)
+            edge_features.append(g.edge_features)
+
         graph_data = GraphData(
-            from_idx=torch.cat([b.from_idx for b in graphs]),
-            to_idx=torch.cat([b.to_idx for b in graphs]),
-            node_features=torch.cat([b.node_features for b in graphs]),
-            edge_features=torch.cat([b.edge_features for b in graphs]),
-            graph_idx=torch.cat([b.graph_idx for b in graphs]),
+            from_idx=torch.cat(from_idx),
+            to_idx=torch.cat(to_idx),
+            node_features=torch.cat(node_features),
+            edge_features=torch.cat(edge_features),
+            graph_idx=torch.cat(graph_idx),
             n_graphs=sum(b.n_graphs for b in graphs)
         )
         return graph_data

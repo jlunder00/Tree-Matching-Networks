@@ -6,7 +6,10 @@ model:
   model_type: embedding
   node_feature_dim: 804
   edge_feature_dim: 70
-  node_hidden_dim: 1024
+  node_state_dim: 512
+  edge_state_dim: 256
+  graph_rep_dim: 1536
+  node_hidden_dim: 1536
   edge_hidden_dim: 512
   n_prop_layers: 5
   dropout: 0.2
@@ -18,8 +21,10 @@ data:
     - wikiqs
     - amazonqa_single/Electronics
     - amazonqa_single/Baby
+    - amazonqa_multiple/Baby
+    - amazonqa_single/Home_and_Kitchen
   allow_cross_dataset_negatives: true
-  batch_size: 128
+  batch_size: 1024
   pos_pairs_per_anchor: 1
   neg_pairs_per_anchor: 10
   min_groups_per_batch: 8
