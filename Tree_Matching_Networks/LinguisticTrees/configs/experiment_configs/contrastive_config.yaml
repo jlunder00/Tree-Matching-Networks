@@ -6,14 +6,28 @@ model:
   model_type: embedding
   node_feature_dim: 804
   edge_feature_dim: 70
-  node_state_dim: 512
+  node_state_dim: 1024
   edge_state_dim: 256
-  graph_rep_dim: 1536
-  node_hidden_dim: 1536
-  edge_hidden_dim: 512
-  n_prop_layers: 5
-  dropout: 0.2
-  temperature: 0.1
+  #both edge and node hidden sizes will have a node_state_dim*2 or node_state_dim*3 layer appended in model definition. x3 or x2 is dependant on embedding vs matching type as is required
+  edge_hidden_sizes: 
+    - 256
+    - 512
+  node_hidden_sizes: 
+    - 1024
+  
+  graph_rep_dim: 1792
+  #graph_transform_sizes wil have graph_rep_dim appended on it
+  graph_transform_sizes: 
+    - 1024
+
+  edge_net_init_scale: 0.1
+  reverse_dir_param_direction_different: false
+  use_reverse_direction: true
+  share_prop_params: true
+
+  n_prop_layers: 7
+  temperature: 0.07
+  # dropout: 0.2
 
 data:
   dataset_type: wikiqs
@@ -23,8 +37,26 @@ data:
     - amazonqa_single/Baby
     - amazonqa_multiple/Baby
     - amazonqa_single/Home_and_Kitchen
+    - amazonqa_single/Industrial_and_Scientific
+    - amazonqa_single/Sports_and_Outdoors
+    - amazonqa_single/qa_Appliances
+    - amazonqa_single/Arts_Crafts_and_Sewing
+    - amazonqa_single/Automotive
+    - amazonqa_single/Beauty
+    - amazonqa_single/Cell_Phones_and_Accessories
+    - amazonqa_single/Clothing_Shoes_and_Jewelry
+    - amazonqa_single/Grocery_and_Gourmet_Food
+    - amazonqa_single/Health_and_Personal_Care
+    - amazonqa_single/Musical_Instruments
+    - amazonqa_single/Office_Products
+    - amazonqa_single/Patio_Lawn_and_Garden
+    - amazonqa_single/Pet_Supplies
+    - amazonqa_single/Software
+    - amazonqa_single/Tools_and_Home_Improvement
+    - amazonqa_single/Toys_and_Games
+    - amazonqa_single/Video_Games
   allow_cross_dataset_negatives: true
-  batch_size: 1024
+  batch_size: 512
   pos_pairs_per_anchor: 1
   neg_pairs_per_anchor: 10
   min_groups_per_batch: 8

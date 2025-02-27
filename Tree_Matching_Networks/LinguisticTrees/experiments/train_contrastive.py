@@ -80,7 +80,7 @@ def train_contrastive(args):
     train_dataset = DynamicCalculatedContrastiveDataset(
         data_dir=[str(path) for path in data_config.train_paths],
         config=config,
-        batch_pairs=config['data']['batch_size'],  # Here batch_pairs is defined in terms of pairs.
+        batch_size=config['data']['batch_size'],  # if a matching model, batch size is defined in terms of pairs. if an embedding model, batch size determined in terms of embeddings
         anchors_per_group=config['data'].get('anchors_per_group', 1),
         pos_pairs_per_anchor=config['data'].get('pos_pairs_per_anchor', 1),
         # neg_pairs_per_anchor=config['data'].get('neg_pairs_per_anchor', 10),
@@ -96,7 +96,7 @@ def train_contrastive(args):
     val_dataset = DynamicCalculatedContrastiveDataset(
         data_dir=[str(path) for path in data_config.dev_paths],
         config=config,
-        batch_pairs=config['data']['batch_size'],  # Here batch_pairs is defined in terms of pairs.
+        batch_size=config['data']['batch_size'],  # if a matching model, batch size is defined in terms of pairs. if an embedding model, batch size determined in terms of embeddings
         anchors_per_group=config['data'].get('anchors_per_group', 1),
         pos_pairs_per_anchor=config['data'].get('pos_pairs_per_anchor', 1),
         # neg_pairs_per_anchor=config['data'].get('neg_pairs_per_anchor', 10),

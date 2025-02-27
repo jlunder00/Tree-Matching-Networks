@@ -68,7 +68,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
     
     It works as follows:
       1. Using the batch size (in terms of pairs) and pairing parameters, it computes:
-           X = ceil(batch_pairs / (P+N))   # total anchors needed
+           X = ceil(batch_size / (P+N))   # total anchors needed
            G = ceil(X / A)                 # number of groups required
            R = A * (1 + P)                 # trees needed per group for positive pairing
       2. The dataset maintains a buffer of groups (loaded from files) where each group is stored
@@ -85,7 +85,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
     def __init__(self, 
                  data_dir: str,
                  config: Dict,
-                 batch_pairs: int, #either maximum or minimum batch size based on if get min groups is passed ceil = True or not. Max if false, min if true.
+                 batch_size: int = 512, #either maximum or minimum batch size based on if get min groups is passed ceil = True or not. Max if false, min if true.
                  anchors_per_group: int = 1,
                  pos_pairs_per_anchor: int = 1,
                  # neg_pairs_per_anchor: int = 4,
@@ -100,7 +100,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         Args:
           data_dir: Directory containing the shard JSON files.
           config: Configuration dictionary.
-          batch_pairs: Desired number of pairs in a batch (each pair consists of 2 trees).
+          batch_size: Desired number of pairs in a batch (each pair consists of 2 trees).
           anchors_per_group (A): Number of anchors to sample per group.
           pos_pairs_per_anchor (P): Number of positive pairs per anchor.
           neg_pairs_per_anchor (N): Number of negative pairs per anchor.
@@ -115,7 +115,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         else:
             self.data_dirs = [Path(dir) for dir in data_dir]
         self.config = config
-        self.batch_pairs = batch_pairs
+        self.batch_size = batch_size
         self.A = anchors_per_group
         self.P = pos_pairs_per_anchor
         # self.N = neg_pairs_per_anchor
@@ -129,21 +129,31 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         self._batches_provided = 0
         self.allow_cross_dataset_negatives = allow_cross_dataset_negatives
 
-        #adjusts the batch size to use the entirety of the calculated integer number of groups. Rounding up with ceil = True means
-        #batch size will be >= what was passed, otherwise it will be <= what was passed
-        self.groups_needed, self.batch_pairs = get_min_groups_pairs_per_anchor(self.A, self.P, self.batch_pairs)
-        #need to get the number of negative pairs per group based on this
+        if self.model_type == 'matching':
+            #adjusts the batch size to use the entirety of the calculated integer number of groups. Rounding up with ceil = True means
+            #batch size will be >= what was passed, otherwise it will be <= what was passed
+            self.groups_needed, self.batch_size = get_min_groups_pairs_per_anchor(self.A, self.P, self.batch_size)
+            #need to get the number of negative pairs per group based on this
 
-        # For positive pairing within a group, each group must supply:
-        self.R = self.A + self.P  # trees per group, need the number of anchors plus the number of positive pairs, eg, one more positive pair per anchor means one more non anchor tree from the group. P > 0 always.
-        #R is the number of trees provided by each group, and P is the number of positive pairs per anchor, so we can find how many positive pairs that makes per group, and then use the number of groups needed to find the overall number of positive pairs
-        self.positive_pairs_per_group = self.P * self.A
-        self.positive_pairs_total = self.positive_pairs_per_group * self.groups_needed
-        #we know the adjusted batch size from using the found number of groups and the number of positive pairs, so we can find the number of negative pairs
-        self.N = self.batch_pairs - self.positive_pairs_total
+            # For positive pairing within a group, each group must supply:
+            self.R = self.A + self.P  # trees per group, need the number of anchors plus the number of positive pairs, eg, one more positive pair per anchor means one more non anchor tree from the group. P > 0 always.
+            #R is the number of trees provided by each group, and P is the number of positive pairs per anchor, so we can find how many positive pairs that makes per group, and then use the number of groups needed to find the overall number of positive pairs
+            self.positive_pairs_per_group = self.P * self.A
+            self.positive_pairs_total = self.positive_pairs_per_group * self.groups_needed
+            #we know the adjusted batch size from using the found number of groups and the number of positive pairs, so we can find the number of negative pairs
+            self.N = self.batch_size - self.positive_pairs_total
 
-        # Calculate the number of anchors required
-        self.total_anchors_needed = self.A * self.groups_needed
+            # Calculate the number of anchors required
+            self.total_anchors_needed = self.A * self.groups_needed
+        else:
+            self.additional_trees_needed = self.P-(self.A-1) if self.P > (self.A-1) else 0
+            self.R = self.A + self.additional_trees_needed
+            self.groups_needed = int(self.batch_size/self.R) #number of groups needed to fulfil batch size embeddings
+            self.batch_pair_size = int(self.A*(self.A+self.additional_trees_needed)*(self.groups_needed**2) - (self.A**2)*self.groups_needed)
+            self.positive_pairs_per_group = self.P * self.A
+            self.positive_pairs_total = self.positive_pairs_per_group * self.groups_needed
+            self.batch_size = int(self.groups_needed * self.R)
+            self.N = self.batch_pair_size - self.positive_pairs_total
 
         #all we need to know is the number of trees each group has to provide, which are anchors, which are not, since we have the number of groups
 
@@ -517,7 +527,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
     def __len__(self):
         """A rough length estimate (number of pairs) based on counts."""
         total_trees = sum(sum(fc['trees_per_group']) for fc in self.file_counts)
-        return total_trees // self.batch_pairs
+        return total_trees // self.batch_size
 
 
 def get_dynamic_calculated_dataloader(dataset: DynamicCalculatedContrastiveDataset,
