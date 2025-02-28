@@ -124,6 +124,27 @@ class InfoNCELoss(BaseLoss):
         else:
             return self._forward_matching(embeddings, batch_info)
 
+    def _infonce_loss_update(self, loss, n_valid_anchors, scaled_sim_matrix, pos_indices, anchor_idx, n_embeddings):
+        # For each anchor, we compute separate InfoNCE loss
+        # treating one positive as the target and remaining entries as negatives
+        for pos_idx in pos_indices:
+            # Create target vector (1 for positive, 0 for all others)
+            target_vector = torch.zeros(n_embeddings, device=self.device)
+            target_vector[pos_idx] = 1
+            
+            # Get similarities for this anchor
+            anchor_similarities = scaled_sim_matrix[anchor_idx]
+            
+            # Compute cross entropy loss (InfoNCE)
+            # This pushes the positive similarity higher than all negatives
+            loss += F.cross_entropy(
+                anchor_similarities.unsqueeze(0),
+                torch.tensor([pos_idx], device=self.device)
+            )
+            n_valid_anchors += 1
+        return loss, n_valid_anchors
+
+
     def _forward_embedding(self, embeddings, batch_info):
         """InfoNCE loss computation for embedding model"""
         # Get number of embeddings
@@ -161,28 +182,17 @@ class InfoNCELoss(BaseLoss):
             if not pos_indices:
                 continue  # Skip anchors with no positives
                 
-            # For each anchor, we compute separate InfoNCE loss
-            # treating one positive as the target and remaining entries as negatives
-            for pos_idx in pos_indices:
-                # Create target vector (1 for positive, 0 for all others)
-                target_vector = torch.zeros(n_embeddings, device=self.device)
-                target_vector[pos_idx] = 1
-                
-                # Get similarities for this anchor
-                anchor_similarities = scaled_sim_matrix[anchor_idx]
-                
-                # Compute cross entropy loss (InfoNCE)
-                # This pushes the positive similarity higher than all negatives
-                loss += F.cross_entropy(
-                    anchor_similarities.unsqueeze(0),
-                    torch.tensor([pos_idx], device=self.device)
-                )
-                n_valid_anchors += 1
+            loss, n_valid_anchors = self._infonce_loss_update(loss, n_valid_anchors, scaled_sim_matrix, pos_indices, anchor_idx, n_embeddings)
         
         # Average loss across all anchors
         if n_valid_anchors > 0:
             loss = loss / n_valid_anchors
+           
+        metrics = self._get_metrics(batch_info, sim_matrix)
             
+        return loss, None, metrics
+
+    def _get_metrics(self, batch_info, sim_matrix, diagonal=False):
         # Compute metrics
         with torch.no_grad():
             # Calculate average similarity for positives
@@ -192,20 +202,25 @@ class InfoNCELoss(BaseLoss):
             n_neg = 0
             
             for anchor_idx in batch_info.anchor_indices:
-                # Get all positive and negative indices for this anchor
-                pos_indices = [pos_idx for a_idx, pos_idx in batch_info.positive_pairs 
-                              if a_idx == anchor_idx]
-                neg_indices = [neg_idx for a_idx, neg_idx in batch_info.negative_pairs 
-                              if a_idx == anchor_idx]
+                if not diagonal:
+                    # Get all positive and negative indices for this anchor
+                    pos_indices = [pos_idx for a_idx, pos_idx in batch_info.positive_pairs 
+                                  if a_idx == anchor_idx]
+                    neg_indices = [neg_idx for a_idx, neg_idx in batch_info.negative_pairs 
+                                  if a_idx == anchor_idx]
+                else:
+                    pos_indices = batch_info.anchor_positive_indexes[anchor_idx] 
+                    neg_indices = batch_info.anchor_negative_indexes[anchor_idx]
+                    
                 
                 # Add positive similarities
                 for pos_idx in pos_indices:
-                    pos_sim += sim_matrix[anchor_idx, pos_idx].item()
+                    pos_sim += sim_matrix[anchor_idx, pos_idx].item() if not diagonal else sim_matrix[pos_idx]
                     n_pos += 1
                     
                 # Add negative similarities
                 for neg_idx in neg_indices:
-                    neg_sim += sim_matrix[anchor_idx, neg_idx].item()
+                    neg_sim += sim_matrix[anchor_idx, neg_idx].item() if not diagonal else sim_matrix[neg_idx]
                     n_neg += 1
             
             # Compute averages
@@ -216,9 +231,7 @@ class InfoNCELoss(BaseLoss):
                 'pos_similarity': pos_sim,
                 'neg_similarity': neg_sim,
             }
-            
-        return loss, None, metrics
-
+        return metrics
 
     def _forward_matching(self, embeddings, batch_info):
         """Compute InfoNCE loss from embeddings and batch info
@@ -229,87 +242,82 @@ class InfoNCELoss(BaseLoss):
         """
         # print("Num positive pairs:", sum(1 for _,_,flag in batch_info.pair_indices if flag))
         # print("First few pair indices:", batch_info.pair_indices[:5])
-        # Extract pairs
-        tree1_embeddings = embeddings[[item[0] for item in batch_info.pair_indices]]
-        tree2_embeddings = embeddings[[item[1] for item in batch_info.pair_indices]]
-        
-        # Compute similarities between all pairs
-        raw_sim_matrix = F.cosine_similarity(
-            tree1_embeddings.unsqueeze(1),  # [n_anchors, 1, hidden_dim]
-            tree2_embeddings.unsqueeze(0),         # [1, n_total, hidden_dim]
-            dim=2
-        ).diag()
-        sim_matrix = raw_sim_matrix / self.temperature
-
-
-        loss = 0
-        n_valid_anchors = 0
-
-        for anchor_idx in batch_info.anchor_indices:
-            # Get all positive pairs for this anchor
-            pos_index_pair_locations = batch_info.anchor_positive_indexes[anchor_idx] 
+        if batch_info.strict_matching:
+            # Extract pairs
+            tree1_embeddings = embeddings[[item[0] for item in batch_info.pair_indices]]
+            tree2_embeddings = embeddings[[item[1] for item in batch_info.pair_indices]]
             
-            #get the list of tuples of this anchors embedding indices in the matrix and each of those positive pairs
-            
-
-            neg_index_pair_locations = batch_info.anchor_negative_indexes[anchor_idx]
-
-            neg_index_pair_idxs = [batch_info.pair_indices[p][0] for p in neg_index_pair_locations]
-
-
-            #for each positive pair
-            for p in pos_index_pair_locations:
-                pos_pair_idx = batch_info.pair_indices[p][0]
-                #target vector includes this pair label and all the negative pairs
-                target_vector = torch.zeros(1+len(neg_index_pair_idxs), device=self.device)
-                target_vector[0] = 1
-                similarity_mask = [pos_pair_idx] + neg_index_pair_idxs
-                anchor_similarities = sim_matrix[similarity_mask]
-
-                loss += F.cross_entropy(
-                    anchor_similarities.unsqueeze(0),
-                    torch.tensor([0], device=self.device)
-                )
-                n_valid_anchors += 1
-
-        if n_valid_anchors > 0:
-            loss = loss / n_valid_anchors
-
-            
+            # Compute similarities between all pairs
+            raw_sim_matrix = F.cosine_similarity(
+                tree1_embeddings.unsqueeze(1),  # [n_anchors, 1, hidden_dim]
+                tree2_embeddings.unsqueeze(0),         # [1, n_total, hidden_dim]
+                dim=2
+            ).diag()
+            sim_matrix = raw_sim_matrix / self.temperature
 
 
-
-        
-        # Basic metrics
-        with torch.no_grad():
-            
-            pos_sim = 0
-            neg_sim = 0
-            n_pos = 0
-            n_neg = 0
+            loss = 0
+            n_valid_anchors = 0
 
             for anchor_idx in batch_info.anchor_indices:
+                # Get all positive pairs for this anchor
                 pos_index_pair_locations = batch_info.anchor_positive_indexes[anchor_idx] 
+                
+                #get the list of tuples of this anchors embedding indices in the matrix and each of those positive pairs
+                
+
                 neg_index_pair_locations = batch_info.anchor_negative_indexes[anchor_idx]
 
+                neg_index_pair_idxs = [batch_info.pair_indices[p][0] for p in neg_index_pair_locations]
+
+
+                #for each positive pair
                 for p in pos_index_pair_locations:
-                    pos_sim += sim_matrix[p]
-                    n_pos += 1
+                    pos_pair_idx = batch_info.pair_indices[p][0]
+                    #target vector includes this pair label and all the negative pairs
+                    target_vector = torch.zeros(1+len(neg_index_pair_idxs), device=self.device)
+                    target_vector[0] = 1
+                    similarity_mask = [pos_pair_idx] + neg_index_pair_idxs
+                    anchor_similarities = sim_matrix[similarity_mask]
 
-                for n in neg_index_pair_locations:
-                    neg_sim += sim_matrix[n]
-                    n_neg += 1
+                    loss += F.cross_entropy(
+                        anchor_similarities.unsqueeze(0),
+                        torch.tensor([0], device=self.device)
+                    )
+                    n_valid_anchors += 1
 
+            if n_valid_anchors > 0:
+                loss = loss / n_valid_anchors
 
-            pos_sim = pos_sim / max(1, n_pos)
-            neg_sim = neg_sim / max(1, n_neg)
-                    
-
-            metrics = {
-                'pos_similarity': pos_sim,
-                'neg_similarity': neg_sim,
-            }
+            metrics = self._get_metrics(batch_info, sim_matrix, diagonal=True)
+        else:
+            n_embeddings = embeddings.shape[0]
+            sim_matrix = F.cosine_similarity(
+                embeddings.unsqueeze(1),  # [n_embeddings, 1, hidden_dim]
+                embeddings.unsqueeze(0),  # [1, n_embeddings, hidden_dim]
+                dim=2
+            )
+            scaled_sim_matrix = sim_matrix / self.temperature
             
+            loss = 0
+            n_valid_anchors = 0
+            for anchor_idx in batch_info.anchor_indices:
+                pos_indices = [pos_idx for a_idx, pos_idx, _ in batch_info.pair_indices if a_idx == anchor_idx]
+                
+                if not pos_indices:
+                    continue
+
+                loss, n_valid_anchors = self._infonce_loss_update(loss, n_valid_anchors, scaled_sim_matrix, pos_indices, anchor_idx, n_embeddings)
+            # Average loss across all anchors
+            if n_valid_anchors > 0:
+                loss = loss / n_valid_anchors
+
+            
+
+
+            metrics = self._get_metrics(batch_info, sim_matrix, diagonal=False)
+
+        
         return loss, None, metrics
 
 # class TreeMatchingLoss(nn.Module):

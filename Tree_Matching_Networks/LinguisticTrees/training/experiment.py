@@ -69,7 +69,7 @@ class ExperimentManager:
         logger.info(f"Saved best model to {path}")
         
     @classmethod
-    def load_checkpoint(cls, checkpoint_path):
+    def load_checkpoint(cls, checkpoint_path, config_override=None):
         """Load checkpoint"""
         checkpoint = torch.load(checkpoint_path)
         
@@ -79,12 +79,20 @@ class ExperimentManager:
             timestamp = path.parent.parent.name.split('_', 1)[1]
         else:
             timestamp = None
+
+        if config_override is None:
+            print('setting with old config')
+            config = checkpoint['config']
+        else:
+            print('setting with override config')
+            config = config_override
+            print(f'config: {config["model"]}')
             
         # Create experiment manager
         manager = cls(
-            task_type=checkpoint['config']['model']['task_type'],
-            config=checkpoint['config'],
+            task_type=config['model']['task_type'],
+            config=config,
             timestamp=timestamp
         )
         
-        return checkpoint, manager
+        return checkpoint, manager, config

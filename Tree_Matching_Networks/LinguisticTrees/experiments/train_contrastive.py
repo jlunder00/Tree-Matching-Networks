@@ -35,8 +35,17 @@ def train_contrastive(args):
     # Initialize experiment
     if args.resume:
         logger.info(f"Resuming from checkpoint: {args.resume}")
-        checkpoint, experiment = ExperimentManager.load_checkpoint(args.resume)
-        config = checkpoint['config']
+        logger.info(f"override config passed is: {args.config}")
+        if args.config:
+            config = get_tree_config(
+                task_type='info_nce',
+                base_config_path=args.config,
+                override_path=args.override
+            ) 
+        else:
+            config = None
+
+        checkpoint, experiment, config = ExperimentManager.load_checkpoint(args.resume, config)
         start_epoch = checkpoint['epoch'] + 1
     else:
         # Load fresh config
@@ -90,7 +99,8 @@ def train_contrastive(args):
         max_active_files=4,
         allow_cross_dataset_negatives=data_config.allow_cross_dataset_negatives,
         recycle_leftovers=True,
-        model_type=config['model'].get('model_type', 'matching')
+        model_type=config['model'].get('model_type', 'matching'),
+        strict_matching=config['data'].get('strict_matching', False)
     )
     
     val_dataset = DynamicCalculatedContrastiveDataset(
@@ -106,7 +116,8 @@ def train_contrastive(args):
         max_active_files=4,
         allow_cross_dataset_negatives=data_config.allow_cross_dataset_negatives,
         recycle_leftovers=True,
-        model_type=config['model'].get('model_type', 'matching')
+        model_type=config['model'].get('model_type', 'matching'),
+        strict_matching=config['data'].get('strict_matching', False)
     )
     
     # Initialize model and optimizer

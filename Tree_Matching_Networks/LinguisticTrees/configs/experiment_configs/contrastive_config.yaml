@@ -26,7 +26,7 @@ model:
   share_prop_params: true
 
   n_prop_layers: 7
-  temperature: 0.07
+  temperature: 0.05
   # dropout: 0.2
 
 data:
@@ -56,7 +56,8 @@ data:
     - amazonqa_single/Toys_and_Games
     - amazonqa_single/Video_Games
   allow_cross_dataset_negatives: true
-  batch_size: 8
+  batch_size: 256
+  strict_matching: False
   pos_pairs_per_anchor: 1
   neg_pairs_per_anchor: 10
   min_groups_per_batch: 8

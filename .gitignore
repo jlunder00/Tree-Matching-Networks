@@ -181,3 +181,5 @@ Tree_Matching_Networks/LinguisticTrees/experiments/experiments/
 Tree_Matching_Networks/LinguisticTrees/experiments/experiments/*
 Tree_Matching_Networks/LinguisticTrees/experiments/contrastive_*/
 Tree_Matching_Networks/LinguisticTrees/experiments/contrastive_*/*
+Tree_Matching_Networks/LinguisticTrees/experiments/info_nce_*/
+Tree_Matching_Networks/LinguisticTrees/experiments/info_nce_*/*
