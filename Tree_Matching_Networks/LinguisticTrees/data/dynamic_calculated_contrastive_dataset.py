@@ -439,7 +439,9 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
             anchor_indices=anchor_indices,
             positive_pairs=positive_pairs,
             negative_pairs=negative_pairs,
-            pair_indices = []
+            pair_indices = [],
+            anchor_positive_indexes = {},
+            anchor_negative_indexes = {}
         )
 
         if self.model_type == 'embedding': #format as pairs for graph matching model with attention network
@@ -496,11 +498,14 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         graph_idx = []
         node_features = []
         edge_features = []
+        last_graph_idx = 0
         for i, g in enumerate(graphs):
-            n_nodes = g.node_features.shape[0]
             from_idx.append(g.from_idx)
             to_idx.append(g.to_idx)
-            graph_idx.append(torch.ones(n_nodes, dtype=torch.int64)*i)
+            for j in range(g.n_graphs):
+                n_nodes = len(g.graph_idx[g.graph_idx == j])
+                graph_idx.append(torch.ones(n_nodes, dtype=torch.int64)*last_graph_idx)
+                last_graph_idx += 1
             node_features.append(g.node_features)
             edge_features.append(g.edge_features)
 

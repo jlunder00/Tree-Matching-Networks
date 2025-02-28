@@ -227,8 +227,8 @@ class InfoNCELoss(BaseLoss):
             embeddings: Graph embeddings for all trees [n_total, hidden_dim]
             batch_info: BatchInfo object with anchor/positive/negative indices
         """
-        print("Num positive pairs:", sum(1 for _,_,flag in batch_info.pair_indices if flag))
-        print("First few pair indices:", batch_info.pair_indices[:5])
+        # print("Num positive pairs:", sum(1 for _,_,flag in batch_info.pair_indices if flag))
+        # print("First few pair indices:", batch_info.pair_indices[:5])
         # Extract pairs
         tree1_embeddings = embeddings[[item[0] for item in batch_info.pair_indices]]
         tree2_embeddings = embeddings[[item[1] for item in batch_info.pair_indices]]
@@ -254,16 +254,16 @@ class InfoNCELoss(BaseLoss):
 
             neg_index_pair_locations = batch_info.anchor_negative_indexes[anchor_idx]
 
-            neg_index_pairs = [batch_info.pair_indices[p] for p in neg_index_pair_locations]
+            neg_index_pair_idxs = [batch_info.pair_indices[p][0] for p in neg_index_pair_locations]
 
 
             #for each positive pair
             for p in pos_index_pair_locations:
-                pos_pair = batch_info.pair_indices[p]
+                pos_pair_idx = batch_info.pair_indices[p][0]
                 #target vector includes this pair label and all the negative pairs
-                target_vector = torch.zeros(1+len(neg_index_pairs), device=self.device)
+                target_vector = torch.zeros(1+len(neg_index_pair_idxs), device=self.device)
                 target_vector[0] = 1
-                similarity_mask = [pos_pair] + neg_index_pairs
+                similarity_mask = [pos_pair_idx] + neg_index_pair_idxs
                 anchor_similarities = sim_matrix[similarity_mask]
 
                 loss += F.cross_entropy(
