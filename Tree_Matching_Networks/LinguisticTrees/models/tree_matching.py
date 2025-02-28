@@ -10,45 +10,72 @@ import torch
 class BaseTreeMatchingNet(GraphMatchingNet):
     """Base class with shared functionality"""
     def __init__(self, config):
+        node_feature_dim = config['model']['node_feature_dim']
+        edge_feature_dim = config['model']['edge_feature_dim']
+        node_state_dim = config['model']['node_state_dim']
+        edge_state_dim = config['model']['edge_state_dim']
+        node_hidden_sizes = config['model']['node_hidden_sizes']
+        node_hidden_sizes.append(node_state_dim*2)
+        edge_hidden_sizes = config['model']['edge_hidden_sizes']
+        edge_hidden_sizes.append(node_state_dim*2)
+        graph_rep_dim = config['model']['graph_rep_dim']
+        graph_transform_sizes = config['model']['graph_transform_sizes']
+        edge_net_init_scale = config['model']['edge_net_init_scale']
+        n_prop_layers = config['model']['n_prop_layers']
+        share_prop_params = config['model']['share_prop_params']  # Add parameter sharing to reduce memory
+        use_reverse_direction = config['model']['use_reverse_direction']
+        reverse_dir_param_different= config['model']['reverse_dir_param_different']
+        if graph_transform_sizes is None:
+            graph_transform_sizes = []
+        graph_transform_sizes.append(graph_rep_dim)
         # Create encoder with consistent dimensions
-        encoder = TreeEncoderlg(
-            node_feature_dim=config['model']['node_feature_dim'],
-            edge_feature_dim=config['model']['edge_feature_dim'],
-            hidden_dim=config['model']['node_hidden_dim'],
-            dropout=config['model'].get('dropout', 0.1)
+        encoder = TreeEncoder(
+            node_feature_dim=node_feature_dim,
+            edge_feature_dim=edge_feature_dim,
+            node_state_dim=node_state_dim, # 256
+            edge_state_dim=edge_state_dim
+            # dropout=config['model'].get('dropout', 0.1)
         )
         
-        # Create aggregator
         aggregator = GraphAggregator(
-            node_hidden_sizes=[config['model']['node_hidden_dim']],
-            graph_transform_sizes=[config['model']['node_hidden_dim']],
-            input_size=[config['model']['node_hidden_dim']],
+            node_hidden_sizes=[graph_rep_dim],
+            graph_transform_sizes=graph_transform_sizes,
+            input_size=[node_state_dim],
             gated=True
         )
+        
+        print(f"aggregator node hidden sizes: {[graph_rep_dim]}")
+        print(f"aggregator graph transform sizes: {graph_transform_sizes}")
+        print(f"aggregator input size: {[node_state_dim]}")
+
+        print(f"model edge hidden sizes: {edge_hidden_sizes}")
+        print(f"model node hidden sizes: {node_hidden_sizes}")
         
         super().__init__(
             encoder=encoder,
             aggregator=aggregator,
-            node_state_dim=config['model']['node_hidden_dim'],
-            edge_state_dim=config['model']['node_hidden_dim'],
-            edge_hidden_sizes=[
-                config['model']['node_hidden_dim'] // 2,
-                config['model']['node_hidden_dim']
-            ],
-            node_hidden_sizes=[config['model']['node_hidden_dim']],
-            n_prop_layers=config['model']['n_prop_layers'],
-            share_prop_params=True
+            node_state_dim=node_state_dim,    # 256
+            edge_state_dim=edge_state_dim,    # Should match node_hidden_dim
+            edge_hidden_sizes=edge_hidden_sizes,  # Half size first
+            node_hidden_sizes=node_hidden_sizes,
+            n_prop_layers=n_prop_layers,
+            share_prop_params=share_prop_params,  # Add parameter sharing to reduce memory
+            use_reverse_direction=use_reverse_direction,
+            reverse_dir_param_different=reverse_dir_param_different,
+            # node_update_type='gru',
+            edge_net_init_scale=edge_net_init_scale,
+            prop_type='matching'
         )
         
-        # Gradient stabilization components
-        self.layer_norm = nn.LayerNorm(config['model']['node_hidden_dim'])
-        self.input_norm = nn.LayerNorm(config['model']['node_feature_dim'])
-        self.output_norm = nn.LayerNorm(config['model']['node_hidden_dim'])
-        self.dropout = nn.Dropout(config['model'].get('dropout', 0.1))
-        
-        # Training settings
-        self.use_residuals = config['model'].get('use_residuals', True)
-        self.checkpointing = True
+        # # Gradient stabilization components
+        # self.layer_norm = nn.LayerNorm(config['model']['node_hidden_dim'])
+        # self.input_norm = nn.LayerNorm(config['model']['node_feature_dim'])
+        # self.output_norm = nn.LayerNorm(config['model']['node_hidden_dim'])
+        # self.dropout = nn.Dropout(config['model'].get('dropout', 0.1))
+        # 
+        # # Training settings
+        # self.use_residuals = config['model'].get('use_residuals', True)
+        # self.checkpointing = True
         
         # self._init_weights(config['model'].get('init_scale', 0.01))
         
@@ -61,29 +88,29 @@ class BaseTreeMatchingNet(GraphMatchingNet):
     #         elif 'bias' in name:
     #             nn.init.zeros_(param)
     
-    def _init_weights(self, scale=0.1):
-        """Initialize weights with scaled Xavier/Glorot initialization, properly handling all parameter types"""
-        for name, param in self.named_parameters():
-            if 'weight' in name:
-                if 'norm' not in name:  # Skip LayerNorm weights
-                    if len(param.shape) >= 2:
-                        # For 2D+ tensors, use xavier
-                        nn.init.xavier_uniform_(param, gain=scale)
-                    else:
-                        # For 1D tensors, use uniform initialization
-                        bound = 1 / math.sqrt(param.shape[0])
-                        nn.init.uniform_(param, -bound * scale, bound * scale)
-            elif 'bias' in name:
-                nn.init.zeros_(param)
+    # def _init_weights(self, scale=0.1):
+    #     """Initialize weights with scaled Xavier/Glorot initialization, properly handling all parameter types"""
+    #     for name, param in self.named_parameters():
+    #         if 'weight' in name:
+    #             if 'norm' not in name:  # Skip LayerNorm weights
+    #                 if len(param.shape) >= 2:
+    #                     # For 2D+ tensors, use xavier
+    #                     nn.init.xavier_uniform_(param, gain=scale)
+    #                 else:
+    #                     # For 1D tensors, use uniform initialization
+    #                     bound = 1 / math.sqrt(param.shape[0])
+    #                     nn.init.uniform_(param, -bound * scale, bound * scale)
+    #         elif 'bias' in name:
+    #             nn.init.zeros_(param)
 
 
-    def enable_checkpointing(self):
-        """Enable gradient checkpointing to save memory"""
-        self.checkpointing = True
-        
-    def disable_checkpointing(self):
-        """Disable gradient checkpointing"""
-        self.checkpointing = False
+    # def enable_checkpointing(self):
+    #     """Enable gradient checkpointing to save memory"""
+    #     self.checkpointing = True
+    #     
+    # def disable_checkpointing(self):
+    #     """Disable gradient checkpointing"""
+    #     self.checkpointing = False
 
 class TreeMatchingNetSimilarity(BaseTreeMatchingNet):
     """Tree matching network for similarity task"""
@@ -418,105 +445,121 @@ class TreeMatchingNetEntailment(BaseTreeMatchingNet):
 #models/tree_matching.py
 class TreeMatchingNet(GraphMatchingNet):
     def __init__(self, config):
+        node_feature_dim = config['model']['node_feature_dim']
+        edge_feature_dim = config['model']['edge_feature_dim']
+        node_state_dim = config['model']['node_state_dim']
+        edge_state_dim = config['model']['edge_state_dim']
+        node_hidden_sizes = config['model']['node_hidden_sizes']
+        node_hidden_sizes.append(node_state_dim*2)
+        edge_hidden_sizes = config['model']['edge_hidden_sizes']
+        edge_hidden_sizes.append(node_state_dim*2)
+        graph_rep_dim = config['model']['graph_rep_dim']
+        graph_transform_sizes = config['model']['graph_transform_sizes']
+        edge_net_init_scale = config['model']['edge_net_init_scale']
+        n_prop_layers = config['model']['n_prop_layers']
+        share_prop_params = config['model']['share_prop_params']  # Add parameter sharing to reduce memory
+        use_reverse_direction = config['model']['use_reverse_direction']
+        reverse_dir_param_different= config['model']['reverse_dir_param_different']
+        if graph_transform_sizes is None:
+            graph_transform_sizes = []
+        graph_transform_sizes.append(graph_rep_dim)
         # Create encoder with consistent dimensions
         encoder = TreeEncoder(
-            node_feature_dim=config['model']['node_feature_dim'],  # 804
-            edge_feature_dim=config['model']['edge_feature_dim'],  # 22 
-            hidden_dim=config['model']['node_hidden_dim'],        # 256
-            dropout=config['model'].get('dropout', 0.1)
+            node_feature_dim=node_feature_dim,
+            edge_feature_dim=edge_feature_dim,
+            node_state_dim=node_state_dim, # 256
+            edge_state_dim=edge_state_dim
+            # dropout=config['model'].get('dropout', 0.1)
         )
         
-        # Create aggregator
         aggregator = GraphAggregator(
-            node_hidden_sizes=[config['model']['node_hidden_dim']],
-            graph_transform_sizes=[config['model']['node_hidden_dim']],
-            input_size=[config['model']['node_hidden_dim']],
+            node_hidden_sizes=[graph_rep_dim],
+            graph_transform_sizes=graph_transform_sizes,
+            input_size=[node_state_dim],
             gated=True
         )
+        
+        print(f"aggregator node hidden sizes: {[graph_rep_dim]}")
+        print(f"aggregator graph transform sizes: {graph_transform_sizes}")
+        print(f"aggregator input size: {[node_state_dim]}")
 
-        # When initializing base class, ensure all dimensions match hidden_dim
+        print(f"model edge hidden sizes: {edge_hidden_sizes}")
+        print(f"model node hidden sizes: {node_hidden_sizes}")
+        
         super().__init__(
             encoder=encoder,
             aggregator=aggregator,
-            node_state_dim=config['model']['node_hidden_dim'],    # 256
-            edge_state_dim=config['model']['node_hidden_dim'],    # Should match node_hidden_dim
-            edge_hidden_sizes=[config['model']['node_hidden_dim'] // 2,  # Reduced intermediate sizes
-                             config['model']['node_hidden_dim']],  # Final size matches node_dim
-            node_hidden_sizes=[config['model']['node_hidden_dim']],
-            n_prop_layers=config['model']['n_prop_layers'],
-            share_prop_params=True  # Add parameter sharing to reduce memory
-        )
-
-        if config['model']['task_type'] == 'similarity':
-            for module in self.modules():
-                if isinstance(module, nn.Linear):
-                    weight_norm(module)
-
-    def forward(self, node_features, edge_features, from_idx, to_idx, graph_idx, n_graphs):
-        # Ensure input tensors require gradients
-        if self.training:
-            node_features = node_features.detach().requires_grad_(True)
-            edge_features = edge_features.detach().requires_grad_(True)
-            
-        return super().forward(
-            node_features,
-            edge_features,
-            from_idx,
-            to_idx,
-            graph_idx,
-            n_graphs
+            node_state_dim=node_state_dim,    # 256
+            edge_state_dim=edge_state_dim,    # Should match node_hidden_dim
+            edge_hidden_sizes=edge_hidden_sizes,  # Half size first
+            node_hidden_sizes=node_hidden_sizes,
+            n_prop_layers=n_prop_layers,
+            share_prop_params=share_prop_params,  # Add parameter sharing to reduce memory
+            use_reverse_direction=use_reverse_direction,
+            reverse_dir_param_different=reverse_dir_param_different,
+            # node_update_type='gru',
+            edge_net_init_scale=edge_net_init_scale,
+            prop_type='matching'
         )
 
     #models/tree_matching.py
 class TreeMatchingNetlg(GraphMatchingNet):
     def __init__(self, config):
+        node_feature_dim = config['model']['node_feature_dim']
+        edge_feature_dim = config['model']['edge_feature_dim']
+        node_state_dim = config['model']['node_state_dim']
+        edge_state_dim = config['model']['edge_state_dim']
+        node_hidden_sizes = config['model']['node_hidden_sizes']
+        node_hidden_sizes.append(node_state_dim*2)
+        edge_hidden_sizes = config['model']['edge_hidden_sizes']
+        edge_hidden_sizes.append(node_state_dim*2)
+        graph_rep_dim = config['model']['graph_rep_dim']
+        graph_transform_sizes = config['model']['graph_transform_sizes']
+        edge_net_init_scale = config['model']['edge_net_init_scale']
+        n_prop_layers = config['model']['n_prop_layers']
+        share_prop_params = config['model']['share_prop_params']  # Add parameter sharing to reduce memory
+        use_reverse_direction = config['model']['use_reverse_direction']
+        reverse_dir_param_different= config['model']['reverse_dir_param_different']
+        if graph_transform_sizes is None:
+            graph_transform_sizes = []
+        graph_transform_sizes.append(graph_rep_dim)
         # Create encoder with consistent dimensions
-        encoder = TreeEncoderlg(
-            node_feature_dim=config['model']['node_feature_dim'],  # 804
-            edge_feature_dim=config['model']['edge_feature_dim'],  # 22 
-            hidden_dim=config['model']['node_hidden_dim'],        # 256
-            dropout=config['model'].get('dropout', 0.1)
+        encoder = TreeEncoder(
+            node_feature_dim=node_feature_dim,
+            edge_feature_dim=edge_feature_dim,
+            node_state_dim=node_state_dim, # 256
+            edge_state_dim=edge_state_dim
+            # dropout=config['model'].get('dropout', 0.1)
         )
         
-        # Create aggregator
         aggregator = GraphAggregator(
-            node_hidden_sizes=[config['model']['node_hidden_dim']],
-            graph_transform_sizes=[config['model']['node_hidden_dim']],
-            input_size=[config['model']['node_hidden_dim']],
+            node_hidden_sizes=[graph_rep_dim],
+            graph_transform_sizes=graph_transform_sizes,
+            input_size=[node_state_dim],
             gated=True
         )
+        
+        print(f"aggregator node hidden sizes: {[graph_rep_dim]}")
+        print(f"aggregator graph transform sizes: {graph_transform_sizes}")
+        print(f"aggregator input size: {[node_state_dim]}")
 
-        # When initializing base class, ensure all dimensions match hidden_dim
+        print(f"model edge hidden sizes: {edge_hidden_sizes}")
+        print(f"model node hidden sizes: {node_hidden_sizes}")
+        
         super().__init__(
             encoder=encoder,
             aggregator=aggregator,
-            node_state_dim=config['model']['node_hidden_dim'],    # 256
-            edge_state_dim=config['model']['node_hidden_dim'],    # Should match node_hidden_dim
-            edge_hidden_sizes=[config['model']['node_hidden_dim'] // 2,  # Reduced intermediate sizes
-                             config['model']['node_hidden_dim']],  # Final size matches node_dim
-            node_hidden_sizes=[config['model']['node_hidden_dim']],
-            n_prop_layers=config['model']['n_prop_layers'],
-            share_prop_params=True  # Add parameter sharing to reduce memory
-        )
-
-        if config['model']['task_type'] == 'similarity':
-            for module in self.modules():
-                if isinstance(module, nn.Linear):
-                    weight_norm(module)
-
-    def forward(self, node_features, edge_features, from_idx, to_idx, graph_idx, n_graphs):
-        # Ensure input tensors require gradients
-        if self.training:
-            node_features = node_features.detach().requires_grad_(True)
-            edge_features = edge_features.detach().requires_grad_(True)
-            
-        return super().forward(
-            node_features,
-            edge_features,
-            from_idx,
-            to_idx,
-            graph_idx,
-            n_graphs
+            node_state_dim=node_state_dim,    # 256
+            edge_state_dim=edge_state_dim,    # Should match node_hidden_dim
+            edge_hidden_sizes=edge_hidden_sizes,  # Half size first
+            node_hidden_sizes=node_hidden_sizes,
+            n_prop_layers=n_prop_layers,
+            share_prop_params=share_prop_params,  # Add parameter sharing to reduce memory
+            use_reverse_direction=use_reverse_direction,
+            reverse_dir_param_different=reverse_dir_param_different,
+            # node_update_type='gru',
+            edge_net_init_scale=edge_net_init_scale,
+            prop_type='matching'
         )
 
 #models/tree_matching.py

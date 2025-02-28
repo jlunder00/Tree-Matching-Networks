@@ -53,7 +53,6 @@ class TreeEmbeddingNet(GraphEmbeddingNet):
             aggregator = aggregator,
             node_state_dim=node_state_dim,    # 256
             edge_state_dim=edge_state_dim,    # Should match node_hidden_dim
-            # edge_state_dim = 0,    # Should match node_hidden_dim
             edge_hidden_sizes=edge_hidden_sizes,  # Half size first
             node_hidden_sizes=node_hidden_sizes,
             n_prop_layers=n_prop_layers,

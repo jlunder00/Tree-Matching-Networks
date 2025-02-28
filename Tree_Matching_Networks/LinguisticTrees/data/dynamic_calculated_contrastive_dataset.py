@@ -51,6 +51,8 @@ class BatchInfo:
     positive_pairs: List[Tuple[int, int]]  # (anchor index, positive candidate index)
     negative_pairs: List[Tuple[int, int]]  # (anchor index, negative candidate index)
     pair_indices: List[Tuple[int, int, bool]]
+    anchor_positive_indexes: Dict
+    anchor_negative_indexes: Dict
 
 
 class DynamicCalculatedContrastiveDataset(IterableDataset):
@@ -448,6 +450,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
             # For each anchor, we need its tree multiple times (for each pos/neg pair)
             all_batch_graphs = []
             all_pair_info = []  # Track which indices form pairs
+            anchor_positive_indexes = {}
             
                 # Add positive pairs
             for pair_idx, (tree_idx1, tree_idx2) in enumerate(batch_info.positive_pairs):
@@ -456,7 +459,13 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
                 all_batch_graphs.append(convert_tree_to_graph_data([tree1, tree2]))
                 # Record these will be paired with graph_idx [2i, 2i+1]
                 all_pair_info.append((pair_idx * 2, pair_idx * 2 + 1, True))  # True = positive pair
+                if tree_idx1 in anchor_positive_indexes.keys():
+                    anchor_positive_indexes[tree_idx1].append(pair_idx)
+                else:
+                    anchor_positive_indexes[tree_idx1] = [pair_idx]
                 
+                
+            anchor_negative_indexes = {}
             # Add negative pairs  
             for pair_idx, (tree_idx1, tree_idx2) in enumerate(batch_info.negative_pairs):
                 tree1, tree2 = copy.deepcopy(batch_trees[tree_idx1]['tree']), copy.deepcopy(batch_trees[tree_idx2]['tree'])
@@ -464,11 +473,17 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
                 all_batch_graphs.append(convert_tree_to_graph_data([tree1, tree2]))
                 # Record these will be paired with graph_idx [2i, 2i+1]
                 all_pair_info.append((pair_idx * 2, pair_idx * 2 + 1, False))  # False = negative pair
+                if tree_idx1 in anchor_negative_indexes.keys():
+                    anchor_negative_indexes[tree_idx1].append(pair_idx)
+                else:
+                    anchor_negative_indexes[tree_idx1] = [pair_idx]
 
             # graphs = convert_tree_to_graph_data(all_batch_trees)  # This creates sequential graph_idx
             
             # Update batch info with the new indices
             batch_info.pair_indices = all_pair_info
+            batch_info.anchor_positive_indexes = anchor_positive_indexes
+            batch_info.anchor_negative_indexes = anchor_negative_indexes
             
         # Convert all trees into single GraphData with correct indexing
         graphs = self.collate_graphs(all_batch_graphs)

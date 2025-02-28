@@ -2,8 +2,8 @@
 model:
   task_type: info_nce
   task_loader_type: contrastive
-  name: tree_embedding
-  model_type: embedding
+  name: tree_matching
+  model_type: matching
   node_feature_dim: 804
   edge_feature_dim: 70
   node_state_dim: 1024
@@ -21,7 +21,7 @@ model:
     - 1024
 
   edge_net_init_scale: 0.1
-  reverse_dir_param_direction_different: false
+  reverse_dir_param_different: false
   use_reverse_direction: true
   share_prop_params: true
 
@@ -56,7 +56,7 @@ data:
     - amazonqa_single/Toys_and_Games
     - amazonqa_single/Video_Games
   allow_cross_dataset_negatives: true
-  batch_size: 512
+  batch_size: 8
   pos_pairs_per_anchor: 1
   neg_pairs_per_anchor: 10
   min_groups_per_batch: 8

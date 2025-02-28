@@ -146,7 +146,7 @@ class InfoNCELoss(BaseLoss):
         # Mark positive pairs (trees from same group, one being an anchor)
         for anchor_idx, pos_idx in batch_info.positive_pairs:
             targets[anchor_idx, pos_idx] = 1
-            
+
         # For InfoNCE loss, we need a label for each anchor indicating
         # which embedding is its positive pair
         loss = 0
@@ -215,8 +215,6 @@ class InfoNCELoss(BaseLoss):
             metrics = {
                 'pos_similarity': pos_sim,
                 'neg_similarity': neg_sim,
-                'raw_pos_sim': pos_sim * self.temperature,
-                'raw_neg_sim': neg_sim * self.temperature,
             }
             
         return loss, None, metrics
@@ -240,31 +238,76 @@ class InfoNCELoss(BaseLoss):
             tree1_embeddings.unsqueeze(1),  # [n_anchors, 1, hidden_dim]
             tree2_embeddings.unsqueeze(0),         # [1, n_total, hidden_dim]
             dim=2
-        )
+        ).diag()
         sim_matrix = raw_sim_matrix / self.temperature
-        # Create labels matrix - 1 for positive pairs, 0 for all else
-        labels = torch.zeros_like(sim_matrix, device=sim_matrix.device)
-        positive_rows = torch.tensor([i for i, j, flag in batch_info.pair_indices if flag], dtype=torch.long, device=sim_matrix.device)
-        positive_cols = torch.tensor([j for i, j, flag in batch_info.pair_indices if flag], dtype=torch.long, device=sim_matrix.device)
-        labels[positive_rows, positive_cols] = 1
-        print("Sim matrix shape:", sim_matrix.shape)  
-        print("Labels shape:", labels.shape)
-        print("Sample similarities and labels:")
-        for i in range(min(5, len(positive_rows))):
-            r, c = positive_rows[i], positive_cols[i]
-            print(f"Anchor {i} positive pair: {sim_matrix[r,c]:.3f}")
-            print(f"Anchor {i} negative means: {sim_matrix[r,:].mean():.3f}")
+
+
+        loss = 0
+        n_valid_anchors = 0
+
+        for anchor_idx in batch_info.anchor_indices:
+            # Get all positive pairs for this anchor
+            pos_index_pair_locations = batch_info.anchor_positive_indexes[anchor_idx] 
             
-        # InfoNCE loss
-        loss = F.cross_entropy(sim_matrix, labels)
+            #get the list of tuples of this anchors embedding indices in the matrix and each of those positive pairs
+            
+
+            neg_index_pair_locations = batch_info.anchor_negative_indexes[anchor_idx]
+
+            neg_index_pairs = [batch_info.pair_indices[p] for p in neg_index_pair_locations]
+
+
+            #for each positive pair
+            for p in pos_index_pair_locations:
+                pos_pair = batch_info.pair_indices[p]
+                #target vector includes this pair label and all the negative pairs
+                target_vector = torch.zeros(1+len(neg_index_pairs), device=self.device)
+                target_vector[0] = 1
+                similarity_mask = [pos_pair] + neg_index_pairs
+                anchor_similarities = sim_matrix[similarity_mask]
+
+                loss += F.cross_entropy(
+                    anchor_similarities.unsqueeze(0),
+                    torch.tensor([0], device=self.device)
+                )
+                n_valid_anchors += 1
+
+        if n_valid_anchors > 0:
+            loss = loss / n_valid_anchors
+
+            
+
+
+
         
         # Basic metrics
         with torch.no_grad():
+            
+            pos_sim = 0
+            neg_sim = 0
+            n_pos = 0
+            n_neg = 0
+
+            for anchor_idx in batch_info.anchor_indices:
+                pos_index_pair_locations = batch_info.anchor_positive_indexes[anchor_idx] 
+                neg_index_pair_locations = batch_info.anchor_negative_indexes[anchor_idx]
+
+                for p in pos_index_pair_locations:
+                    pos_sim += sim_matrix[p]
+                    n_pos += 1
+
+                for n in neg_index_pair_locations:
+                    neg_sim += sim_matrix[n]
+                    n_neg += 1
+
+
+            pos_sim = pos_sim / max(1, n_pos)
+            neg_sim = neg_sim / max(1, n_neg)
+                    
+
             metrics = {
-                'pos_similarity': sim_matrix[labels == 1].mean(),
-                'neg_similarity': sim_matrix[labels == 0].mean(),
-                'raw_pos_sim': raw_sim_matrix[labels == 1].mean(),
-                'raw_neg_sim': raw_sim_matrix[labels == 0].mean(),
+                'pos_similarity': pos_sim,
+                'neg_similarity': neg_sim,
             }
             
         return loss, None, metrics
