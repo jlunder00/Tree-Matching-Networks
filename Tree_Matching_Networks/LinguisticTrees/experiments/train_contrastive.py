@@ -57,6 +57,22 @@ def train_contrastive(args):
         experiment = ExperimentManager('contrastive', config)
         start_epoch = 0
 
+    # Check if this is a wandb sweep run
+    is_sweep_run = wandb.run is not None and wandb.run.name is not None
+    
+    # Initialize wandb if not already initialized by sweep
+    if not is_sweep_run:
+        wandb.init(
+            project=config['wandb']['project'],
+            name=f"contrastive_{experiment.timestamp}",
+            config=config,
+            tags=['contrastive', *config['wandb'].get('tags', [])]
+        )
+    else:
+        # Update experiment tags if in a sweep
+        wandb.run.tags = list(set(wandb.run.tags) | set(['contrastive', *config['wandb'].get('tags', [])]))
+    
+
     # Data config
     data_config = TreeDataConfig(
         dataset_specs=config.get('data', {}).get('dataset_specs', 
@@ -68,12 +84,6 @@ def train_contrastive(args):
     )
     
     # Initialize wandb
-    wandb.init(
-        project=config['wandb']['project'],
-        name=f"contrastive_{experiment.timestamp}",
-        config=config,
-        tags=['contrastive', *config['wandb'].get('tags', [])]
-    )
     
     logger.info("Creating datasets...")
     # Adjust paths for your environment

@@ -533,7 +533,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
             files = files[worker_info.id::worker_info.num_workers]
             self.file_queue = deque(files)
 
-        max_batches = self.config.get('max_batches_per_epoch', 1000)
+        max_batches = self.config['data'].get('max_batches_per_epoch', 250)
         # Loop until files are exhausted and buffer cannot be refilled.
         while self._batches_provided < max_batches:
             self._fill_buffer()
