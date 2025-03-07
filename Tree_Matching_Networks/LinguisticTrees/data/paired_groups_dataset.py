@@ -78,7 +78,8 @@ class PairedGroupsDatasetBase(IterableDataset):
                  max_active_files: int = 2,
                  contrastive_mode: bool = False,
                  min_trees_per_group: int = 1,
-                 filter_labels: Optional[Set[float]] = None):
+                 filter_labels: Optional[Set[float]] = None,
+                 label_map: Optional[Dict] = {}):
         """
         Initialize the base dataset.
         
@@ -99,6 +100,7 @@ class PairedGroupsDatasetBase(IterableDataset):
         else:
             self.data_dirs = [Path(dir) for dir in data_dir]
             
+        self.label_map = label_map
         self.config = config
         self.batch_size = batch_size
         self.shuffle_files = shuffle_files
@@ -201,7 +203,10 @@ class PairedGroupsDatasetBase(IterableDataset):
                 
             group_id = group.get('group_id', f"group_{len(self.group_buffers)}")
             group_idx = group.get('group_idx', 0)
-            label = float(group.get('label', 1.0 if self.contrastive_mode else 0.0))
+            label_raw = group.get('label', 1.0 if self.contrastive_mode else 0.0)
+            if isinstance(label_raw, str):
+                label_raw = self.label_map[label_raw]
+            label = float(label_raw)
             
             # Filter by label if needed
             if self.filter_labels is not None and label not in self.filter_labels:
@@ -492,11 +497,14 @@ class NonStrictDataset(PairedGroupsDatasetBase):
     Batch size is interpreted as number of trees.
     """
     
-    def __init__(self, *args, max_skips=5, **kwargs):
+    def __init__(self, *args, max_skips=5, avg_trees_per_subgroup=5, **kwargs):
+        self.avg_trees_per_subgroup = avg_trees_per_subgroup
         super().__init__(*args, **kwargs)
         
         # Calculate batch parameters for non-strict
         self.max_skips = max_skips
+        self.target_groups = self.batch_size / (self.avg_trees_per_subgroup*2)
+        self.adjusted_batch_size = self.avg_trees_per_subgroup*2*self.target_groups
         logger.info(f"Non-strict - Target groups: {self.target_groups}, " 
                    f"Adjusted batch size: {self.adjusted_batch_size}")
 
