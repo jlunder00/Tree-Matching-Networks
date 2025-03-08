@@ -39,7 +39,7 @@ def test_non_strict_matching_dataset():
     
     # Path to your data directory containing paired groups
     # Adjust this to your actual data path
-    data_dir = "/home/jlunder/research/data/semeval/test/"
+    data_dir = "/home/jlunder/research/data/semeval/sharded/dev/semeval_converted_trf_sharded/"
     
     logger.info(f"Creating dataset from {data_dir}")
     
@@ -55,8 +55,8 @@ def test_non_strict_matching_dataset():
         prefetch_factor=None,
         max_active_files=2,
         min_trees_per_group=1,
-        avg_trees_per_subgroup=5,
-        label_map = {'entails':1.0, 'neutral':0.0, 'contradiction':-1.0}
+        label_map = {'entails':1.0, 'neutral':0.0, 'contradiction':-1.0},
+        label_norm = {'old':(0, 5), 'new':(-1, 1)}
     )
     
     logger.info(f"Created dataset: {type(dataset).__name__}")

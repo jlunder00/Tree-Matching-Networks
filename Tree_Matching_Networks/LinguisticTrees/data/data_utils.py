@@ -132,5 +132,8 @@ def get_min_groups_pairs_per_anchor(anchors_per_group, positive_pairs_per_anchor
     total_pairs = a*(a+b)*(g**2) - (a**2)*g #now find the adjusted total pairs generated from this many groups
     return g, total_pairs
 
+def normalize(x, old_min, old_max, new_min, new_max):
+    return new_min + ((x - old_min) / (old_max - old_min)) * (new_max - new_min)
+
 
 
