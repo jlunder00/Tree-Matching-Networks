@@ -3,6 +3,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .metrics import TreeMatchingMetrics
+try:
+    from ...models import TextAggregator
+except:
+    from TreeMatchingMetrics.Linguistic_Trees.models import TextAggregator
 # from scipy.stats import pearsonr, spearmanr
 
 
@@ -319,4 +323,251 @@ class InfoNCELoss(BaseLoss):
 
         
         return loss, None, metrics
+
+class TextLevelContrastiveLoss(BaseLoss):
+    """Contrastive loss for text-level embeddings"""
+    
+    def __init__(self, device, temperature=0.07, aggregation='mean'):
+        super().__init__(device)
+        self.temperature = temperature
+        self.aggregator = TextAggregator(aggregation)
+    
+    def forward(self, 
+                embeddings: torch.Tensor, 
+                batch_info: 'PairedGroupBatchInfo') -> Tuple[torch.Tensor, torch.Tensor, Dict]:
+        """
+        Compute contrastive loss on text level
+        
+        Args:
+            embeddings: Tree-level embeddings [n_trees, hidden_dim]
+            batch_info: Batch information
+            
+        Returns:
+            loss: Scalar loss value
+            similarities: Similarity scores
+            metrics: Dictionary of metrics
+        """
+        # 1. Aggregate tree embeddings into text embeddings
+        text_embeddings = self.aggregator(embeddings, batch_info)
+        
+        # 2. Create text-level anchor-positive pairs
+        n_groups = len(batch_info.group_indices)
+        anchor_indices = list(range(0, n_groups*2, 2))  # Even indices
+        pos_indices = list(range(1, n_groups*2, 2))     # Odd indices
+        
+        # 3. Compute similarity matrix
+        sim_matrix = F.cosine_similarity(
+            text_embeddings.unsqueeze(1),
+            text_embeddings.unsqueeze(0),
+            dim=2
+        )
+        scaled_sim = sim_matrix / self.temperature
+        
+        # 4. Compute InfoNCE loss
+        loss = 0
+        n_valid_anchors = 0
+        
+        for i, anchor_idx in enumerate(anchor_indices):
+            # Current positive is the corresponding text in the pair
+            pos_idx = pos_indices[i]
+            
+            # Use InfoNCE format (treat one positive as target, all others as negatives)
+            loss += F.cross_entropy(
+                scaled_sim[anchor_idx].unsqueeze(0),
+                torch.tensor([pos_idx], device=self.device)
+            )
+            n_valid_anchors += 1
+        
+        # 5. Compute metrics
+        with torch.no_grad():
+            metrics = self._compute_metrics(sim_matrix, anchor_indices, pos_indices)
+        
+        return loss / max(1, n_valid_anchors), sim_matrix, metrics
+    
+    def _compute_metrics(self, 
+                         sim_matrix: torch.Tensor, 
+                         anchor_indices: List[int], 
+                         pos_indices: List[int]) -> Dict:
+        """Compute metrics for contrastive learning"""
+        pos_sim = 0
+        neg_sim = 0
+        n_pos = 0
+        n_neg = 0
+        
+        for i, anchor_idx in enumerate(anchor_indices):
+            pos_idx = pos_indices[i]
+            
+            # Positive similarity (with correct pair)
+            pos_sim += sim_matrix[anchor_idx, pos_idx].item()
+            n_pos += 1
+            
+            # Negative similarities (with all other text embeddings)
+            for j, other_idx in enumerate(pos_indices):
+                if j != i:  # Skip the true positive
+                    neg_sim += sim_matrix[anchor_idx, other_idx].item()
+                    n_neg += 1
+        
+        return {
+            'pos_similarity': pos_sim / max(1, n_pos),
+            'neg_similarity': neg_sim / max(1, n_neg),
+            'similarity_gap': (pos_sim / max(1, n_pos)) - (neg_sim / max(1, n_neg))
+        }
+
+
+class TextLevelSimilarityLoss(BaseLoss):
+    """Similarity regression loss for text-level embeddings"""
+    
+    def __init__(self, device, margin=0.1, aggregation='mean'):
+        super().__init__(device)
+        self.similarity_loss = SimilarityLoss(device, margin=margin)
+        self.aggregator = TextAggregator(aggregation)
+    
+    def forward(self, 
+                embeddings: torch.Tensor, 
+                batch_info: 'PairedGroupBatchInfo') -> Tuple[torch.Tensor, torch.Tensor, Dict]:
+        """
+        Compute similarity loss on text level
+        
+        Args:
+            embeddings: Tree-level embeddings [n_trees, hidden_dim]
+            batch_info: Batch information
+            
+        Returns:
+            loss: Scalar loss value
+            similarities: Similarity scores 
+            metrics: Dictionary of metrics
+        """
+        # 1. Aggregate tree embeddings into text embeddings
+        text_embeddings = self.aggregator(embeddings, batch_info)
+        
+        # 2. Extract text pairs and labels
+        n_groups = len(batch_info.group_indices)
+        text_a_embeddings = text_embeddings[0::2]  # Even indices
+        text_b_embeddings = text_embeddings[1::2]  # Odd indices
+        labels = torch.tensor(batch_info.group_labels, device=self.device)
+        
+        # 3. Compute similarity loss
+        loss, similarities, metrics = self.similarity_loss(
+            text_a_embeddings, text_b_embeddings, labels
+        )
+        
+        return loss, similarities, metrics
+
+
+class TextLevelEntailmentLoss(BaseLoss):
+    """Classification loss for text-level entailment"""
+    
+    def __init__(self, device, num_classes=3, aggregation='mean'):
+        super().__init__(device)
+        self.aggregator = TextAggregator(aggregation)
+        self.classifier = nn.Sequential(
+            nn.Linear(2*768, 512),  # Assuming 768-dim embeddings
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(512, num_classes)
+        ).to(device)
+        self.criterion = nn.CrossEntropyLoss()
+    
+    def forward(self, 
+                embeddings: torch.Tensor, 
+                batch_info: 'PairedGroupBatchInfo') -> Tuple[torch.Tensor, torch.Tensor, Dict]:
+        """
+        Compute entailment loss on text level
+        
+        Args:
+            embeddings: Tree-level embeddings [n_trees, hidden_dim]
+            batch_info: Batch information
+            
+        Returns:
+            loss: Scalar loss value
+            predictions: Predicted classes
+            metrics: Dictionary of metrics
+        """
+        # 1. Aggregate tree embeddings into text embeddings
+        text_embeddings = self.aggregator(embeddings, batch_info)
+        
+        # 2. Extract text pairs 
+        n_groups = len(batch_info.group_indices)
+        text_a_embeddings = text_embeddings[0::2]  # Even indices
+        text_b_embeddings = text_embeddings[1::2]  # Odd indices
+        
+        # 3. Concatenate text embeddings for classification
+        pair_features = torch.cat([text_a_embeddings, text_b_embeddings], dim=1)
+        
+        # 4. Convert labels (-1, 0, 1) to class indices (0, 1, 2)
+        labels = torch.tensor(
+            [int(l + 1) for l in batch_info.group_labels], 
+            device=self.device
+        ).long()
+        
+        # 5. Compute classification logits and loss
+        logits = self.classifier(pair_features)
+        loss = self.criterion(logits, labels)
+        
+        # 6. Get predictions and compute metrics
+        predictions = torch.argmax(logits, dim=1) - 1  # Convert back to (-1, 0, 1)
+        
+        with torch.no_grad():
+            metrics = {
+                'accuracy': (predictions == (labels - 1)).float().mean().item(),
+            }
+        
+        return loss, predictions, metrics
+
+
+class TextLevelBinaryLoss(BaseLoss):
+    """Binary classification loss for text-level matching (e.g., patent matching)"""
+    
+    def __init__(self, device, threshold=0.5, aggregation='mean'):
+        super().__init__(device)
+        self.aggregator = TextAggregator(aggregation)
+        self.threshold = threshold
+        self.criterion = nn.BCEWithLogitsLoss()
+    
+    def forward(self, 
+                embeddings: torch.Tensor, 
+                batch_info: 'PairedGroupBatchInfo') -> Tuple[torch.Tensor, torch.Tensor, Dict]:
+        """
+        Compute binary classification loss on text level
+        
+        Args:
+            embeddings: Tree-level embeddings [n_trees, hidden_dim]
+            batch_info: Batch information
+            
+        Returns:
+            loss: Scalar loss value
+            predictions: Binary predictions
+            metrics: Dictionary of metrics
+        """
+        # 1. Aggregate tree embeddings into text embeddings
+        text_embeddings = self.aggregator(embeddings, batch_info)
+        
+        # 2. Extract text pairs
+        n_groups = len(batch_info.group_indices)
+        text_a_embeddings = text_embeddings[0::2]  # Even indices
+        text_b_embeddings = text_embeddings[1::2]  # Odd indices
+        
+        # 3. Compute similarity scores
+        similarities = F.cosine_similarity(text_a_embeddings, text_b_embeddings)
+        
+        # 4. Normalize labels to binary values (0 or 1)
+        binary_labels = torch.tensor(
+            [(1 if l > self.threshold else 0) for l in batch_info.group_labels], 
+            device=self.device
+        ).float()
+        
+        # 5. Compute loss
+        # Scale similarities from [-1,1] to logits
+        scaled_similarities = similarities * 5.0  # Scale factor for sharper logits
+        loss = self.criterion(scaled_similarities, binary_labels)
+        
+        # 6. Get predictions and compute metrics
+        predictions = (similarities > 0.0).float()  # Threshold at 0 for cosine similarity
+        
+        with torch.no_grad():
+            metrics = {
+                'accuracy': (predictions == binary_labels).float().mean().item(),
+            }
+        
+        return loss, predictions, metrics
 

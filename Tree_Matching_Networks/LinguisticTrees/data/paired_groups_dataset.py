@@ -58,7 +58,6 @@ class PairedGroupBatchInfo:
             result.append((g_idx, 'b'))
         return result
 
-
 class PairedGroupsDatasetBase(IterableDataset):
     """
     Base class for datasets loading groups with paired tree sets.
