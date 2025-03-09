@@ -4,9 +4,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from .metrics import TreeMatchingMetrics
 try:
-    from ...models import TextAggregator
+    from ...models import TreeAggregator
 except:
-    from TreeMatchingMetrics.Linguistic_Trees.models import TextAggregator
+    from TreeMatchingMetrics.Linguistic_Trees.models import TreeAggregator
 # from scipy.stats import pearsonr, spearmanr
 
 
@@ -20,6 +20,21 @@ class BaseLoss(nn.Module):
     def _send_to_device(self, tensor):
         """Helper to send tensor to device"""
         return tensor.to(self.device, non_blocking=True)
+
+    def _pearson_loss(self, pred, target):
+        # Subtract means
+        pred_mean = torch.mean(pred)
+        target_mean = torch.mean(target)
+        pred_centered = pred - pred_mean
+        target_centered = target - target_mean
+        
+        # Compute numerator and denominator for Pearson correlation
+        numerator = torch.sum(pred_centered * target_centered)
+        denominator = torch.sqrt(torch.sum(pred_centered ** 2)) * torch.sqrt(torch.sum(target_centered ** 2)) + 1e-8
+        pearson_corr = numerator / denominator
+        
+        # If you want to maximize the correlation, you can minimize (1 - correlation)
+        return 1 - pearson_corr
 
 class SimilarityLoss(BaseLoss):
     """Loss function for similarity task"""
@@ -330,7 +345,7 @@ class TextLevelContrastiveLoss(BaseLoss):
     def __init__(self, device, temperature=0.07, aggregation='mean'):
         super().__init__(device)
         self.temperature = temperature
-        self.aggregator = TextAggregator(aggregation)
+        self.aggregator = TreeAggregator(aggregation)
     
     def forward(self, 
                 embeddings: torch.Tensor, 
@@ -419,8 +434,8 @@ class TextLevelSimilarityLoss(BaseLoss):
     
     def __init__(self, device, margin=0.1, aggregation='mean'):
         super().__init__(device)
-        self.similarity_loss = SimilarityLoss(device, margin=margin)
-        self.aggregator = TextAggregator(aggregation)
+        # self.similarity_loss = SimilarityLoss(device, margin=margin)
+        self.aggregator = TreeAggregator(aggregation)
     
     def forward(self, 
                 embeddings: torch.Tensor, 
@@ -446,10 +461,12 @@ class TextLevelSimilarityLoss(BaseLoss):
         text_b_embeddings = text_embeddings[1::2]  # Odd indices
         labels = torch.tensor(batch_info.group_labels, device=self.device)
         
+        similarities = F.cosine_similarity(text_a_embeddings, text_b_embeddings, dim=1)
+        loss = torch.nn.MSELoss()(similarities, labels)
         # 3. Compute similarity loss
-        loss, similarities, metrics = self.similarity_loss(
-            text_a_embeddings, text_b_embeddings, labels
-        )
+        # loss, similarities, metrics = self.similarity_loss(
+        #     text_a_embeddings, text_b_embeddings, labels
+        # )
         
         return loss, similarities, metrics
 
@@ -459,7 +476,7 @@ class TextLevelEntailmentLoss(BaseLoss):
     
     def __init__(self, device, num_classes=3, aggregation='mean'):
         super().__init__(device)
-        self.aggregator = TextAggregator(aggregation)
+        self.aggregator = TreeAggregator(aggregation)
         self.classifier = nn.Sequential(
             nn.Linear(2*768, 512),  # Assuming 768-dim embeddings
             nn.ReLU(),
@@ -520,7 +537,7 @@ class TextLevelBinaryLoss(BaseLoss):
     
     def __init__(self, device, threshold=0.5, aggregation='mean'):
         super().__init__(device)
-        self.aggregator = TextAggregator(aggregation)
+        self.aggregator = TreeAggregator(aggregation)
         self.threshold = threshold
         self.criterion = nn.BCEWithLogitsLoss()
     
