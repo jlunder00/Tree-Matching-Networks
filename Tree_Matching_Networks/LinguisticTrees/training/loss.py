@@ -432,7 +432,7 @@ class TextLevelContrastiveLoss(BaseLoss):
 class TextLevelSimilarityLoss(BaseLoss):
     """Similarity regression loss for text-level embeddings"""
     
-    def __init__(self, device, margin=0.1, aggregation='mean'):
+    def __init__(self, device, aggregation='mean'):
         super().__init__(device)
         # self.similarity_loss = SimilarityLoss(device, margin=margin)
         self.aggregator = TreeAggregator(aggregation)
@@ -467,7 +467,10 @@ class TextLevelSimilarityLoss(BaseLoss):
         # loss, similarities, metrics = self.similarity_loss(
         #     text_a_embeddings, text_b_embeddings, labels
         # )
-        
+        with torch.no_grad():
+            metrics = TreeMatchingMetrics.compute_task_metrics(
+                similarities, labels, 'similarity'
+            )
         return loss, similarities, metrics
 
 

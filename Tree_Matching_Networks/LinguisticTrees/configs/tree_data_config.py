@@ -16,7 +16,7 @@ class TreeDataConfig:
     
     # Keep single dataset_type for backward compatibility
     dataset_type: Literal['snli', 'semeval', 'para50m', 'wikiqs', 'amazonqa_multiple', 'amazonqa_single'] = 'snli'
-    task_type: Literal['entailment', 'similarity', 'info_nce'] = 'entailment'
+    task_type: Literal['entailment', 'similarity', 'info_nce', 'similarity_aggregative', 'entailment_aggregative', 'info_nce_aggregative'] = 'entailment'
     
     # SpaCy model variant (trf, lg, sm)
     spacy_variant: Literal['trf', 'lg', 'sm'] = 'trf'

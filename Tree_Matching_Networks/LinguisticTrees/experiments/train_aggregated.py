@@ -1,4 +1,4 @@
-# experiments/train_contrastive.py
+# experiments/train_aggregative.py
 import torch.multiprocessing as mp
 import wandb
 import torch
@@ -30,15 +30,15 @@ except:
 
 logger = logging.getLogger(__name__)
 
-def train_contrastive(args):
-    """Full training loop for contrastive learning"""
+def train_aggregative(args):
+    """Full training loop for aggregative learning"""
     # Initialize experiment
     if args.resume:
         logger.info(f"Resuming from checkpoint: {args.resume}")
         logger.info(f"override config passed is: {args.config}")
         if args.config:
             config = get_tree_config(
-                task_type='info_nce',
+                task_type='similarity_aggregative',
                 base_config_path=args.config,
                 override_path=args.override
             ) 
@@ -50,11 +50,11 @@ def train_contrastive(args):
     else:
         # Load fresh config
         config = get_tree_config(
-            task_type='info_nce',  # New task type
-            base_config_path=args.config if args.config else '/home/jlunder/research/Tree-Matching-Networks/Tree_Matching_Networks/LinguisticTrees/configs/experiment_configs/contrastive_config.yaml',
+            task_type='similarity_aggregative',  # New task type
+            base_config_path=args.config if args.config else '/home/jlunder/research/Tree-Matching-Networks/Tree_Matching_Networks/LinguisticTrees/configs/experiment_configs/aggregative_config.yaml',
             override_path=args.override
         )
-        experiment = ExperimentManager('contrastive', config)
+        experiment = ExperimentManager('aggregative', config)
         start_epoch = 0
 
     # Check if this is a wandb sweep run
@@ -64,20 +64,20 @@ def train_contrastive(args):
     if not is_sweep_run:
         wandb.init(
             project=config['wandb']['project'],
-            name=f"contrastive_{experiment.timestamp}",
+            name=f"aggregative_{experiment.timestamp}",
             config=config,
-            tags=['contrastive', *config['wandb'].get('tags', [])]
+            tags=['aggregative', *config['wandb'].get('tags', [])]
         )
     else:
         # Update experiment tags if in a sweep
-        wandb.run.tags = list(set(wandb.run.tags) | set(['contrastive', *config['wandb'].get('tags', [])]))
+        wandb.run.tags = list(set(wandb.run.tags) | set(['aggregative', *config['wandb'].get('tags', [])]))
     
 
     # Data config
     data_config = TreeDataConfig(
         dataset_specs=config.get('data', {}).get('dataset_specs', 
                                                [config.get('data', {}).get('dataset_type', 'wikiqs')]),
-        task_type='info_nce',
+        task_type='',
         use_sharded_train=True,
         use_sharded_validate=True,
         allow_cross_dataset_negatives=config.get('data', {}).get('allow_cross_dataset_negatives', True)
@@ -96,38 +96,34 @@ def train_contrastive(args):
     #     data_path=data_config.dev_path / "shard_000002.json",  # Adjust path as needed
     #     config=config
     # )
-    train_dataset = DynamicCalculatedContrastiveDataset(
+    train_dataset = create_paired_groups_dataset(
         data_dir=[str(path) for path in data_config.train_paths],
         config=config,
+        model_type=config['model'].get('model_type', 'matching'),
+        strict_matching=config['data'].get('strict_matching', False),
+        contrastive_mode=config['data'].get('contrastive_mode', False),
         batch_size=config['data']['batch_size'],  # if a matching model, batch size is defined in terms of pairs. if an embedding model, batch size determined in terms of embeddings
-        anchors_per_group=config['data'].get('anchors_per_group', 1),
-        pos_pairs_per_anchor=config['data'].get('pos_pairs_per_anchor', 1),
-        # neg_pairs_per_anchor=config['data'].get('neg_pairs_per_anchor', 10),
-        # min_groups_per_batch=config['data'].get('min_groups_per_batch', 8),
         shuffle_files=True,
         prefetch_factor=config['data'].get('prefetch_factor', 2),
         max_active_files=4,
-        allow_cross_dataset_negatives=data_config.allow_cross_dataset_negatives,
-        recycle_leftovers=True,
-        model_type=config['model'].get('model_type', 'matching'),
-        strict_matching=config['data'].get('strict_matching', False)
+        min_trees_per_group=1,
+        label_map = {'entails':1.0, 'neutral':0.0, 'contradiction':-1.0},
+        label_norm = {'old':(0, 5), 'new':(-1, 1)}
     )
     
-    val_dataset = DynamicCalculatedContrastiveDataset(
+    val_dataset = create_paired_groups_dataset(
         data_dir=[str(path) for path in data_config.dev_paths],
         config=config,
+        model_type=config['model'].get('model_type', 'matching'),
+        strict_matching=config['data'].get('strict_matching', False),
+        contrastive_mode=config['data'].get('contrastive_mode', False),
         batch_size=config['data']['batch_size'],  # if a matching model, batch size is defined in terms of pairs. if an embedding model, batch size determined in terms of embeddings
-        anchors_per_group=config['data'].get('anchors_per_group', 1),
-        pos_pairs_per_anchor=config['data'].get('pos_pairs_per_anchor', 1),
-        # neg_pairs_per_anchor=config['data'].get('neg_pairs_per_anchor', 10),
-        # min_groups_per_batch=config['data'].get('min_groups_per_batch', 8),
         shuffle_files=True,
         prefetch_factor=config['data'].get('prefetch_factor', 2),
         max_active_files=4,
-        allow_cross_dataset_negatives=data_config.allow_cross_dataset_negatives,
-        recycle_leftovers=True,
-        model_type=config['model'].get('model_type', 'matching'),
-        strict_matching=config['data'].get('strict_matching', False)
+        min_trees_per_group=1,
+        label_map = {'entails':1.0, 'neutral':0.0, 'contradiction':-1.0},
+        label_norm = {'old':(0, 5), 'new':(-1, 1)}
     )
     
     # Initialize model and optimizer
@@ -210,6 +206,7 @@ if __name__ == '__main__':
                       help='Path to checkpoint to resume from')
     parser.add_argument('--debug', action='store_true',
                       help='Enable debug mode')
+
     args = parser.parse_args()
     
     # Setup logging
@@ -219,7 +216,8 @@ if __name__ == '__main__':
     )
     
     try:
-        train_contrastive(args)
+        train_aggregative(args)
     except Exception as e:
         logger.exception("Training failed with error:")
         raise
+

@@ -1,10 +1,11 @@
 # training/train.py
 from ..data.data_utils import GraphData
 from ..data.batch_utils import BatchInfo
+from ..data.paired_groups_dataset import PairedGroupBatchInfo
 from ..data.dynamic_calculated_contrastive_dataset import get_dynamic_calculated_dataloader
 from tqdm import tqdm
 import wandb
-from .loss import SimilarityLoss, EntailmentLoss, InfoNCELoss 
+from .loss import SimilarityLoss, EntailmentLoss, InfoNCELoss, TextLevelSimilarityLoss, TextLevelBinaryLoss, TextLevelEntailmentLoss, TextLevelContrastiveLoss 
 import torch
 import logging
 import time
@@ -56,11 +57,10 @@ def train_step_infonce(model, graphs: GraphData, batch_info: BatchInfo,
         else:
             raise
 
-def train_step(model, graphs: GraphData, labels: torch.Tensor, 
+def train_step(model, graphs: GraphData, batch_info: PairedGroupBatchInfo, 
                optimizer, loss_fn, config: dict):
     """Single training step with full gradient optimization"""
     device = config['device']
-    scaler = torch.GradScaler(device)
     
     try:
         # Move data to device if needed
@@ -73,7 +73,6 @@ def train_step(model, graphs: GraphData, labels: torch.Tensor,
                 graph_idx=graphs.graph_idx.to(device, non_blocking=True),
                 n_graphs=graphs.n_graphs
             )
-            labels = labels.to(device, non_blocking=True)
             
         # Enable gradient checkpointing if configured
         # if config['model'].get('gradient_checkpointing', False):
@@ -82,7 +81,7 @@ def train_step(model, graphs: GraphData, labels: torch.Tensor,
         # Mixed precision forward pass
         # with torch.autocast(device):
         # Forward pass
-        outputs = model(
+        embeddings = model(
             graphs.node_features,
             graphs.edge_features,
             graphs.from_idx,
@@ -90,39 +89,46 @@ def train_step(model, graphs: GraphData, labels: torch.Tensor,
             graphs.graph_idx,
             graphs.n_graphs
         )
-        
-        # Compute loss based on model type
-        if config['model']['task_type'] == 'similarity':
-            x, y = outputs[::2], outputs[1::2]
-            loss, predictions, metrics = loss_fn(x, y, labels)
-        else:  # entailment
-            loss, predictions, metrics = loss_fn(outputs, labels)
+        # Compute loss
+        loss, predictions, metrics = loss_fn(embeddings, batch_info)
         
         # Scale loss for accumulation
         loss = loss / config['train']['gradient_accumulation_steps']
-            
-        # Scaled backward pass
-        scaler.scale(loss).backward()
+        loss.backward()
+
         
-        # Unscale gradients for clipping
-        scaler.unscale_(optimizer)
-        torch.nn.utils.clip_grad_norm_(
-            model.parameters(), 
-            config['train']['clip_value']
-        )
-        
-        # Step optimizer and update scaler
-        scaler.step(optimizer)
-        scaler.update()
-        
-        # Clear gradients
-        optimizer.zero_grad(set_to_none=True)
-        
-        # Move predictions to CPU and clear cache
-        predictions = predictions.cpu()
-        if config['train'].get('aggressive_cleanup', False):
-            torch.cuda.empty_cache()
-        
+        # # Compute loss based on model type
+        # if config['model']['task_type'] == 'similarity':
+        #     x, y = outputs[::2], outputs[1::2]
+        #     loss, predictions, metrics = loss_fn(x, y, labels)
+        # else:  # entailment
+        #     loss, predictions, metrics = loss_fn(outputs, labels)
+        # 
+        # # Scale loss for accumulation
+        # loss = loss / config['train']['gradient_accumulation_steps']
+        #     
+        # # Scaled backward pass
+        # scaler.scale(loss).backward()
+        # 
+        # # Unscale gradients for clipping
+        # scaler.unscale_(optimizer)
+        # torch.nn.utils.clip_grad_norm_(
+        #     model.parameters(), 
+        #     config['train']['clip_value']
+        # )
+        # 
+        # # Step optimizer and update scaler
+        # scaler.step(optimizer)
+        # scaler.update()
+        # 
+        # # Clear gradients
+        # optimizer.zero_grad(set_to_none=True)
+        # 
+        # # Move predictions to CPU and clear cache
+        # predictions = predictions.cpu()
+        # if config['train'].get('aggressive_cleanup', False):
+        #     torch.cuda.empty_cache()
+        # 
         return loss.item() * config['train']['gradient_accumulation_steps'], predictions, metrics
         
     except RuntimeError as e:
@@ -157,11 +163,16 @@ def train_epoch(model, dataset, optimizer, config, epoch):
             device=device,
             temperature=config['model'].get('temperature', 0.07)
         )
+    elif task_type == 'similarity_aggregative':
+        loss_fn = TextLevelSimilarityLoss(
+            device = device,
+            aggregation = config['model']['aggregation']
+        )
     else:
         loss_fn = EntailmentLoss(device).to(device=device, non_blocking=True)
     
 
-    if task_loader_type == 'contrastive':
+    if task_loader_type == 'contrastive' or task_loader_type == 'contrastive_aggregative':
         return train_epoch_contrastive(model, dataset, optimizer, loss_fn, config, epoch)
 
 
@@ -172,7 +183,7 @@ def train_epoch(model, dataset, optimizer, config, epoch):
         'data_time': 0.0
     }
     
-    if task_type == 'similarity':
+    if task_type == 'similarity' or task_type == 'similarity_aggregative':
         metrics.update({
             'correlation': 0.0,
             'spearman': 0.0,
@@ -203,7 +214,7 @@ def train_epoch(model, dataset, optimizer, config, epoch):
     start_time = time.time()
     data_start = time.time()
     
-    for batch_idx, (graphs, labels) in pbar:
+    for batch_idx, (graphs, batch_info) in pbar:
         # Measure data loading time
         data_time = time.time() - data_start
         metrics['data_time'] += data_time
@@ -211,7 +222,7 @@ def train_epoch(model, dataset, optimizer, config, epoch):
         try:
             # Training step
             loss, predictions, batch_metrics = train_step(
-                model, graphs, labels, optimizer, loss_fn, config
+                model, graphs, batch_info, optimizer, loss_fn, config
             )
             
             # Optimize on schedule
@@ -236,7 +247,7 @@ def train_epoch(model, dataset, optimizer, config, epoch):
                 'loss': f'{loss:.4f}',
                 'time': f'{batch_time:.3f}s'
             }
-            if task_type == 'similarity':
+            if task_type == 'similarity' or task_type == 'similarity_aggregative':
                 progress.update({
                     'corr': f"{batch_metrics['correlation']:.4f}",
                     'mse': f"{batch_metrics['mse']:.4f}"
