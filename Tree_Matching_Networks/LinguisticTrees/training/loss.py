@@ -3,17 +3,18 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .metrics import TreeMatchingMetrics
+from typing import Tuple, Dict, List
 try:
     from ...models import TreeAggregator
 except:
-    from TreeMatchingMetrics.Linguistic_Trees.models import TreeAggregator
+    from Tree_Matching_Networks.LinguisticTrees.models import TreeAggregator
 # from scipy.stats import pearsonr, spearmanr
 
 
 
 class BaseLoss(nn.Module):
     """Base class for loss functions"""
-    def __init__(self, device):
+    def __init__(self, device, **kwargs):
         super().__init__()
         self.device = device
 
@@ -98,7 +99,7 @@ class SimilarityLoss(BaseLoss):
 
 class EntailmentLoss(BaseLoss):
     """Loss function for entailment classification"""
-    def __init__(self, device):
+    def __init__(self, device, **kwargs):
         super().__init__(device)
         self.criterion = nn.CrossEntropyLoss()
 
@@ -130,7 +131,7 @@ class EntailmentLoss(BaseLoss):
 
 class InfoNCELoss(BaseLoss):
     """InfoNCE contrastive loss implementation"""
-    def __init__(self, device, temperature=0.07):
+    def __init__(self, device, temperature=0.07, **kwargs):
         super().__init__(device)
         self.temperature = temperature
 
@@ -342,7 +343,7 @@ class InfoNCELoss(BaseLoss):
 class TextLevelContrastiveLoss(BaseLoss):
     """Contrastive loss for text-level embeddings"""
     
-    def __init__(self, device, temperature=0.07, aggregation='mean'):
+    def __init__(self, device, temperature=0.07, aggregation='mean', **kwargs):
         super().__init__(device)
         self.temperature = temperature
         self.aggregator = TreeAggregator(aggregation)
@@ -432,7 +433,7 @@ class TextLevelContrastiveLoss(BaseLoss):
 class TextLevelSimilarityLoss(BaseLoss):
     """Similarity regression loss for text-level embeddings"""
     
-    def __init__(self, device, aggregation='mean'):
+    def __init__(self, device, aggregation='mean', **kwargs):
         super().__init__(device)
         # self.similarity_loss = SimilarityLoss(device, margin=margin)
         self.aggregator = TreeAggregator(aggregation)
@@ -477,7 +478,7 @@ class TextLevelSimilarityLoss(BaseLoss):
 class TextLevelEntailmentLoss(BaseLoss):
     """Classification loss for text-level entailment"""
     
-    def __init__(self, device, num_classes=3, aggregation='mean'):
+    def __init__(self, device, num_classes=3, aggregation='mean', **kwargs):
         super().__init__(device)
         self.aggregator = TreeAggregator(aggregation)
         self.classifier = nn.Sequential(
@@ -538,10 +539,11 @@ class TextLevelEntailmentLoss(BaseLoss):
 class TextLevelBinaryLoss(BaseLoss):
     """Binary classification loss for text-level matching (e.g., patent matching)"""
     
-    def __init__(self, device, threshold=0.5, aggregation='mean'):
+    def __init__(self, device, threshold=0.5, aggregation='mean', temperature=0.2, **kwargs):
         super().__init__(device)
         self.aggregator = TreeAggregator(aggregation)
         self.threshold = threshold
+        self.temperature = temperature
         self.criterion = nn.BCEWithLogitsLoss()
     
     def forward(self, 
@@ -578,7 +580,7 @@ class TextLevelBinaryLoss(BaseLoss):
         
         # 5. Compute loss
         # Scale similarities from [-1,1] to logits
-        scaled_similarities = similarities * 5.0  # Scale factor for sharper logits
+        scaled_similarities = similarities / self.temperature  # Scale factor for sharper logits
         loss = self.criterion(scaled_similarities, binary_labels)
         
         # 6. Get predictions and compute metrics

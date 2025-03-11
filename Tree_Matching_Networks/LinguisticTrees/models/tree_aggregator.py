@@ -3,7 +3,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import List, Dict, Tuple, Optional, Callable, Union
-from .loss import BaseLoss, SimilarityLoss, EntailmentLoss, InfoNCELoss
 
 class AggregationStrategies:
     """Collection of strategies for aggregating sentence embeddings into text embeddings"""

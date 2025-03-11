@@ -15,8 +15,8 @@ class TreeDataConfig:
     dataset_specs: List[str] = None
     
     # Keep single dataset_type for backward compatibility
-    dataset_type: Literal['snli', 'semeval', 'para50m', 'wikiqs', 'amazonqa_multiple', 'amazonqa_single'] = 'snli'
-    task_type: Literal['entailment', 'similarity', 'info_nce', 'similarity_aggregative', 'entailment_aggregative', 'info_nce_aggregative'] = 'entailment'
+    dataset_type: Literal['snli', 'semeval', 'para50m', 'wikiqs', 'amazonqa_multiple', 'amazonqa_single', 'patentmatch_balanced', 'patentmatch_ultrabalanced'] = 'snli'
+    task_type: Literal['entailment', 'similarity', 'info_nce', 'binary'] = 'entailment'
     
     # SpaCy model variant (trf, lg, sm)
     spacy_variant: Literal['trf', 'lg', 'sm'] = 'trf'
@@ -64,6 +64,10 @@ class TreeDataConfig:
             base_dir = f'amazonqa_multiple_converted_{self.spacy_variant}'
         elif base_dataset == 'amazonqa_single':
             base_dir = f'amazonqa_single_converted_{self.spacy_variant}'
+        elif base_dataset == 'patentmatch_balanced':
+            base_dir = f'patentmatch_balanced_{split}_converted_{self.spacy_variant}'
+        elif base_dataset == 'patentmatch_ultrabalanced':
+            base_dir = f'patentmatch_ultrabalanced_{split}_converted_{self.spacy_variant}'
         else:
             # Generic fallback
             base_dir = f'{base_dataset}_{split}_converted_{self.spacy_variant}'

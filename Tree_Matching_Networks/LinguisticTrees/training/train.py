@@ -3,6 +3,7 @@ from ..data.data_utils import GraphData
 from ..data.batch_utils import BatchInfo
 from ..data.paired_groups_dataset import PairedGroupBatchInfo
 from ..data.dynamic_calculated_contrastive_dataset import get_dynamic_calculated_dataloader
+from ..data.paired_groups_dataset import get_paired_groups_dataloader
 from tqdm import tqdm
 import wandb
 from .loss import SimilarityLoss, EntailmentLoss, InfoNCELoss, TextLevelSimilarityLoss, TextLevelBinaryLoss, TextLevelEntailmentLoss, TextLevelContrastiveLoss 
@@ -10,8 +11,10 @@ import torch
 import logging
 import time
 from ..utils.memory_utils import MemoryMonitor
+from .loss_handlers import LOSS_HANDLERS as loss_handlers
 
 logger = logging.getLogger(__name__)
+
 
 def train_step_infonce(model, graphs: GraphData, batch_info: BatchInfo,
                        optimizer, loss_fn, config: dict):
@@ -143,9 +146,11 @@ def train_step(model, graphs: GraphData, batch_info: PairedGroupBatchInfo,
 def train_epoch(model, dataset, optimizer, config, epoch):
     """Train for one epoch with optimized data loading"""
     model.train()
+    dataset.reset_epoch()
     device = config['device']
     task_type = config['model']['task_type']
     task_loader_type = config['model']['task_loader_type']    
+    contrastive_types = ['infonce']
     
     # Initialize loss function
     # loss_fn = TreeMatchingLoss(
@@ -153,26 +158,40 @@ def train_epoch(model, dataset, optimizer, config, epoch):
     #     task_type=task_type,
     #     **config['model'].get('loss_params', {})
     # ).to(device, non_blocking=True)
-    if task_type == 'similarity':
-        loss_fn = SimilarityLoss(
-            device = device
-            # **config['mode'].get('loss_params', {})
-        ).to(device, non_blocking=True)
-    elif task_type == 'info_nce':
-        loss_fn = InfoNCELoss(
-            device=device,
-            temperature=config['model'].get('temperature', 0.07)
-        )
-    elif task_type == 'similarity_aggregative':
-        loss_fn = TextLevelSimilarityLoss(
-            device = device,
-            aggregation = config['model']['aggregation']
-        )
-    else:
-        loss_fn = EntailmentLoss(device).to(device=device, non_blocking=True)
+    loss_loader = 'other' if task_loader_type != 'aggregative' else task_loader_type
+    loss_fn = loss_handlers[task_type][loss_loader](
+        device = device,
+        temperature = config['model'].get('temperature', 0.07),
+        aggregation = config['model'].get('aggregation', 'attention'),
+        threshold = config['model'].get("threshold", 0.5),
+        classes = config['model'].get("classes", 3)
+    )
+
+    # if task_type == 'similarity':
+    #     loss_fn = SimilarityLoss(
+    #         device = device
+    #         # **config['mode'].get('loss_params', {})
+    #     ).to(device, non_blocking=True)
+    # elif task_type == 'info_nce':
+    #     loss_fn = InfoNCELoss(
+    #         device=device,
+    #         temperature=config['model'].get('temperature', 0.07)
+    #     )
+    # elif task_type == 'similarity_aggregative':
+    #     loss_fn = TextLevelSimilarityLoss(
+    #         device = device,
+    #         aggregation = config['model']['aggregation']
+    #     )
+    # elif task_type == 'contrastive_aggregative':
+    #     loss_fn = TextLevelContrastiveLoss(
+    #         device = device,
+    #         aggregation = config['model']['aggregation']
+    #     )
+    # else:
+    #     loss_fn = EntailmentLoss(device).to(device=device, non_blocking=True)
     
 
-    if task_loader_type == 'contrastive' or task_loader_type == 'contrastive_aggregative':
+    if task_type in contrastive_types:
         return train_epoch_contrastive(model, dataset, optimizer, loss_fn, config, epoch)
 
 
@@ -183,7 +202,7 @@ def train_epoch(model, dataset, optimizer, config, epoch):
         'data_time': 0.0
     }
     
-    if task_type == 'similarity' or task_type == 'similarity_aggregative':
+    if task_type == 'similarity':
         metrics.update({
             'correlation': 0.0,
             'spearman': 0.0,
@@ -197,7 +216,10 @@ def train_epoch(model, dataset, optimizer, config, epoch):
             # 'f1': 0.0,
         })
     # Create data iterator with progress bar
-    data_loader = dataset.pairs(config['data']['batch_size'])
+    if task_loader_type == 'aggregative':
+        data_loader = get_paired_groups_dataloader(dataset, config['data']['num_workers']) 
+    else:
+        data_loader = dataset.pairs(config['data']['batch_size'])
     n_batches = len(data_loader) if hasattr(data_loader, '__len__') else None
     
     pbar = tqdm(

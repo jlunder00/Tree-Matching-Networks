@@ -191,6 +191,17 @@ class PairedGroupsDatasetBase(IterableDataset):
         # Queue of files to process
         self.file_queue = deque(self.data_files)
         self.active_files = deque(maxlen=self.max_active_files)
+
+    def reset_epoch(self):
+        if not self.file_queue:
+            self.file_queue = deque(self.data_files)
+            if self.shuffle_files:
+                files = list(self.file_queue)
+                random.shuffle(files)
+                self.file_queue = deque(files)
+        self.group_buffers.clear()
+        self.active_files.clear()
+        self._batches_provided = 0
         
     def _get_feature_config(self) -> Dict:
         """Create feature extractor config."""
@@ -267,6 +278,9 @@ class PairedGroupsDatasetBase(IterableDataset):
                 continue
 
             # Store tree counts for better batch calculation
+            print(group_id)
+            print(trees_a_count)
+            print(trees_b_count)
             self.group_counts[group_id] = {
                 'trees_a': trees_a_count,
                 'trees_b': trees_b_count
@@ -391,25 +405,48 @@ class PairedGroupsDatasetBase(IterableDataset):
         """
         max_batches = self.config['data'].get('max_batches_per_epoch', 250)
         
-        if hasattr(self, 'group_counts') and self.group_counts:
+        print(self.group_counts)
+        if hasattr(self, 'file_counts') and self.file_counts:
             # If we have actual group counts, use them for better estimation
             if isinstance(self, StrictMatchingDataset):
+                total_pairs = 0
                 # For strict matching, count pairs
-                total_pairs = sum(
-                    counts['trees_a'] * counts['trees_b'] 
-                    for counts in self.group_counts.values()
-                )
+                if hasattr(self, 'contrastive_mode') and self.contrastive_mode:
+                    for count_data in self.file_counts.values():
+                        file_pairs = sum(
+                            (count_data['trees_per_group'][i] * sum(count_data['trees_b_per_group'])) - count_data['trees_per_group'][i] ** 2
+                            for i in range(count_data['n_groups'])
+                        )
+                        total_pairs += file_pairs
+                else:
+                    for count_data in self.file_counts.values():
+                        file_pairs = sum(
+                            count_data['trees_per_group'][i] * count_data['trees_b_per_group'][i] 
+                            for i in range(count_data['n_groups']) 
+                        )
+                        total_pairs +=  file_pairs
+                    
                 return min(total_pairs // self.batch_size, max_batches)
             else:
                 # For non-strict, count trees
-                total_trees = sum(
-                    counts['trees_a'] + counts['trees_b']
-                    for counts in self.group_counts.values()
-                )
+                total_trees = 0
+                for count_data in self.file_counts.values():
+                    if isinstance(self, MatchingDataset):
+                        file_trees = sum(
+                            max(count_data['trees_per_group'][i], count_data['trees_b_per_group'][i])*2
+                            for i in range(count_data['n_groups'])
+                        )
+                    else:
+                        file_trees = sum(
+                            count_data['trees_per_group'][i] + count_data['trees_b_per_group'][i]
+                            for i in range(count_data['n_groups'])
+                        )
+                    total_trees += file_trees
                 return min(total_trees // self.batch_size, max_batches)
         else:
             # Fall back to simple estimate
-            return min(max_batches, 10)
+            # return min(max_batches, 100)
+            return max_batches
 
 
 class StrictMatchingDataset(PairedGroupsDatasetBase):
@@ -993,7 +1030,7 @@ def create_paired_groups_dataset(
         return MatchingDataset(**base_args)
 
 
-def get_paired_groups_dataloader(dataset, num_workers=4, pin_memory=True):
+def get_paired_groups_dataloader(dataset, num_workers=4, pin_memory=True, persistent_workers=True):
     """Create a DataLoader for PairedGroupsDataset."""
     return DataLoader(
         dataset,
@@ -1002,7 +1039,7 @@ def get_paired_groups_dataloader(dataset, num_workers=4, pin_memory=True):
         num_workers=num_workers,
         pin_memory=pin_memory,
         prefetch_factor=dataset.prefetch_factor,
-        persistent_workers=True if num_workers > 0 else False
+        persistent_workers=True if num_workers > 0 and persistent_workers else False
     )
 
 

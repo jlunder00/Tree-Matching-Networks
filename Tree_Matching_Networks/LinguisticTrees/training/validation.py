@@ -2,14 +2,16 @@
 import torch
 import torch.nn.functional as F
 import logging
-from .loss import SimilarityLoss, EntailmentLoss, InfoNCELoss 
+from .loss import SimilarityLoss, EntailmentLoss, InfoNCELoss, TextLevelBinaryLoss, TextLevelSimilarityLoss, TextLevelEntailmentLoss, TextLevelContrastiveLoss 
 import wandb
 from tqdm import tqdm
 import time
+from ..data.paired_groups_dataset import get_paired_groups_dataloader
 from ..utils.memory_utils import MemoryMonitor
 from ..data.data_utils import GraphData
 from ..data.dynamic_calculated_contrastive_dataset import get_dynamic_calculated_dataloader
 from ..data.batch_utils import BatchInfo
+from .loss_handlers import LOSS_HANDLERS as loss_handlers
 
 logger = logging.getLogger(__name__)
 
@@ -37,95 +39,167 @@ def validate_step_contrastive(model, graphs, batch_info, loss_fn, device, config
             graphs.n_graphs
         )
         
-        loss, _, base_metrics = loss_fn(embeddings, batch_info)
-        # Calculate similarity matrix for all embeddings
-        similarity_matrix = F.cosine_similarity(
-            embeddings.unsqueeze(1),  # [n_embeddings, 1, hidden_dim]
-            embeddings.unsqueeze(0),  # [1, n_embeddings, hidden_dim]
-            dim=2
-        )
-        
-        # Compute accuracy metrics for contrastive learning
-        accuracy_metrics = {}
-        
-        # Accuracy@1: Whether the most similar item is the correct positive
-        top1_accuracy = 0
-        total_anchors = 0
-        
-        for anchor_idx in batch_info.anchor_indices:
-            # Get positive indices for this anchor
-            positive_indices = [pos_idx for a_idx, pos_idx in batch_info.positive_pairs 
-                             if a_idx == anchor_idx]
+        loss, predictions, base_metrics = loss_fn(embeddings, batch_info)
+
+        if 'aggregative' in config['model']['task_loader_type']:
+            accuracy_metrics = {}
             
-            if not positive_indices:
-                continue
+            # Accuracy@1: Whether the most similar item is the correct positive
+            top1_accuracy = 0
+            total_anchors = 0
+
+            n_groups = len(batch_info.group_indices)
+            anchor_indices = list(range(0, n_groups*2, 2))
+            pos_indices = list(range(1, n_groups*2, 2))
+            
+            for i, anchor_idx in enumerate(anchor_indices):
+                # Get positive indices for this anchor
+                pos_idx = pos_indices[i]
                 
-            # Get similarities for this anchor with all other samples
-            anchor_similarities = similarity_matrix[anchor_idx]
-            
-            # Exclude self-similarity
-            anchor_similarities[anchor_idx] = -float('inf')
-            
-            # Get the index of the highest similarity
-            top_idx = torch.argmax(anchor_similarities).item()
-            
-            # Check if the top similarity is with a positive example
-            is_correct = top_idx in positive_indices
-            top1_accuracy += int(is_correct)
-            total_anchors += 1
-            
-        if total_anchors > 0:
-            accuracy_metrics['top1_accuracy'] = top1_accuracy / total_anchors
-        
-        # Recall@k (k=5): Percentage of positives in top k most similar items
-        k = min(5, similarity_matrix.size(0) - 1)  # Ensure k is valid
-        recall_at_k = 0
-        
-        for anchor_idx in batch_info.anchor_indices:
-            positives = [pos_idx for a_idx, pos_idx in batch_info.positive_pairs 
-                       if a_idx == anchor_idx]
-            
-            if not positives:
-                continue
+                # Get similarities for this anchor with all other samples
+                anchor_similarities = predictions[anchor_idx]
                 
-            # Get similarities excluding self
-            sims = similarity_matrix[anchor_idx].clone()
-            sims[anchor_idx] = -float('inf')
-            
-            # Get top k indices
-            _, top_k_indices = torch.topk(sims, k)
-            
-            # Count positives in top k
-            correct = sum(1 for idx in top_k_indices if idx.item() in positives)
-            recall_at_k += correct / len(positives)
-            
-        if total_anchors > 0:
-            accuracy_metrics[f'recall@{k}'] = recall_at_k / total_anchors
-        
-        # Mean Reciprocal Rank (MRR)
-        mrr = 0
-        for anchor_idx in batch_info.anchor_indices:
-            positives = [pos_idx for a_idx, pos_idx in batch_info.positive_pairs 
-                       if a_idx == anchor_idx]
-            
-            if not positives:
-                continue
+                # Exclude self-similarity
+                # anchor_similarities[anchor_idx] = -float('inf')
                 
-            # Get similarities excluding self
-            sims = similarity_matrix[anchor_idx].clone()
-            sims[anchor_idx] = -float('inf')
+                # Get the index of the highest similarity
+                top_idx = torch.argmax(anchor_similarities).item()
+                
+                # Check if the top similarity is with a positive example
+                is_correct = top_idx == pos_idx
+                top1_accuracy += int(is_correct)
+                total_anchors += 1
+                
+            if total_anchors > 0:
+                accuracy_metrics['top1_accuracy'] = top1_accuracy / total_anchors
             
-            # Get ranks of all items
-            _, indices = torch.sort(sims, descending=True)
+            # Recall@k (k=5): Percentage of positives in top k most similar items
+            k = min(5, predictions.size(0) - 1)  # Ensure k is valid
+            recall_at_k = 0
             
-            # Find rank of first positive
-            for rank, idx in enumerate(indices):
-                if idx.item() in positives:
-                    mrr += 1.0 / (rank + 1)  # +1 because ranks are 0-indexed
-                    break
-        
-        if total_anchors > 0:
-            accuracy_metrics['mrr'] = mrr / total_anchors
+            for i, anchor_idx in enumerate(anchor_indices):
+                pos_idx = pos_indices[i]
+                
+                sims = predictions[anchor_idx].clone()
+                
+                # Get top k indices
+                _, top_k_indices = torch.topk(sims, k)
+                
+                # Count positives in top k
+                correct = sum(1 for idx in top_k_indices if idx.item() == pos_idx)
+                recall_at_k += correct 
+                
+            if total_anchors > 0:
+                accuracy_metrics[f'recall@{k}'] = recall_at_k / total_anchors
+            
+            # Mean Reciprocal Rank (MRR)
+            mrr = 0
+            for i, anchor_idx in enumerate(anchor_indices):
+                pos_idx = pos_indices[i]
+                
+                sims = predictions[anchor_idx].clone()
+                
+                # Get ranks of all items
+                _, indices = torch.sort(sims, descending=True)
+                
+                # Find rank of first positive
+                for rank, idx in enumerate(indices):
+                    if idx.item() == pos_idx:
+                        mrr += 1.0 / (rank + 1)  # +1 because ranks are 0-indexed
+                        break
+            
+            if total_anchors > 0:
+                accuracy_metrics['mrr'] = mrr / total_anchors
+        else:
+
+            # Calculate similarity matrix for all embeddings
+            similarity_matrix = F.cosine_similarity(
+                embeddings.unsqueeze(1),  # [n_embeddings, 1, hidden_dim]
+                embeddings.unsqueeze(0),  # [1, n_embeddings, hidden_dim]
+                dim=2
+            )
+            
+            # Compute accuracy metrics for contrastive learning
+            accuracy_metrics = {}
+            
+            # Accuracy@1: Whether the most similar item is the correct positive
+            top1_accuracy = 0
+            total_anchors = 0
+            
+            for anchor_idx in batch_info.anchor_indices:
+                # Get positive indices for this anchor
+                positive_indices = [pos_idx for a_idx, pos_idx in batch_info.positive_pairs 
+                                 if a_idx == anchor_idx]
+                
+                if not positive_indices:
+                    continue
+                    
+                # Get similarities for this anchor with all other samples
+                anchor_similarities = similarity_matrix[anchor_idx]
+                
+                # Exclude self-similarity
+                anchor_similarities[anchor_idx] = -float('inf')
+                
+                # Get the index of the highest similarity
+                top_idx = torch.argmax(anchor_similarities).item()
+                
+                # Check if the top similarity is with a positive example
+                is_correct = top_idx in positive_indices
+                top1_accuracy += int(is_correct)
+                total_anchors += 1
+                
+            if total_anchors > 0:
+                accuracy_metrics['top1_accuracy'] = top1_accuracy / total_anchors
+            
+            # Recall@k (k=5): Percentage of positives in top k most similar items
+            k = min(5, similarity_matrix.size(0) - 1)  # Ensure k is valid
+            recall_at_k = 0
+            
+            for anchor_idx in batch_info.anchor_indices:
+                positives = [pos_idx for a_idx, pos_idx in batch_info.positive_pairs 
+                           if a_idx == anchor_idx]
+                
+                if not positives:
+                    continue
+                    
+                # Get similarities excluding self
+                sims = similarity_matrix[anchor_idx].clone()
+                sims[anchor_idx] = -float('inf')
+                
+                # Get top k indices
+                _, top_k_indices = torch.topk(sims, k)
+                
+                # Count positives in top k
+                correct = sum(1 for idx in top_k_indices if idx.item() in positives)
+                recall_at_k += correct / len(positives)
+                
+            if total_anchors > 0:
+                accuracy_metrics[f'recall@{k}'] = recall_at_k / total_anchors
+            
+            # Mean Reciprocal Rank (MRR)
+            mrr = 0
+            for anchor_idx in batch_info.anchor_indices:
+                positives = [pos_idx for a_idx, pos_idx in batch_info.positive_pairs 
+                           if a_idx == anchor_idx]
+                
+                if not positives:
+                    continue
+                    
+                # Get similarities excluding self
+                sims = similarity_matrix[anchor_idx].clone()
+                sims[anchor_idx] = -float('inf')
+                
+                # Get ranks of all items
+                _, indices = torch.sort(sims, descending=True)
+                
+                # Find rank of first positive
+                for rank, idx in enumerate(indices):
+                    if idx.item() in positives:
+                        mrr += 1.0 / (rank + 1)  # +1 because ranks are 0-indexed
+                        break
+            
+            if total_anchors > 0:
+                accuracy_metrics['mrr'] = mrr / total_anchors
             
         # Combine with base metrics
         combined_metrics = {**base_metrics, **accuracy_metrics}
@@ -140,7 +214,7 @@ def validate_step_contrastive(model, graphs, batch_info, loss_fn, device, config
         else:
             raise
 
-def validate_step(model, graphs, labels, loss_fn, device, config):
+def validate_step(model, graphs, batch_info, loss_fn, device, config):
     """Single validation step with memory management"""
     try:
         # Move data to device
@@ -152,10 +226,9 @@ def validate_step(model, graphs, labels, loss_fn, device, config):
             graph_idx=graphs.graph_idx.to(device, non_blocking=True),
             n_graphs=graphs.n_graphs
         )
-        labels = labels.to(device, non_blocking=True)
         
         # Forward pass
-        outputs = model(
+        embeddings = model(
             graphs.node_features,
             graphs.edge_features,
             graphs.from_idx,
@@ -165,16 +238,17 @@ def validate_step(model, graphs, labels, loss_fn, device, config):
         )
         
         # Compute metrics based on task
-        if config['model']['task_type'] == 'similarity':
-            x, y = outputs[::2], outputs[1::2]
-            loss, predictions, metrics = loss_fn(x, y, labels)
-            del x, y
-        else:  # entailment
-            loss, predictions, metrics = loss_fn(outputs, labels)
+        # if config['model']['task_type'] == 'similarity':
+        #     x, y = outputs[::2], outputs[1::2]
+        #     loss, predictions, metrics = loss_fn(x, y, batch_info)
+        #     del x, y
+        # else:  # entailment
+        #     loss, predictions, metrics = loss_fn(outputs, batch_info)
+        loss, predictions, metrics = loss_fn(embeddings, batch_info)
         
         # Cleanup
         del graphs
-        del outputs
+        del embeddings
         torch.cuda.empty_cache()
         
         return loss.item(), predictions, metrics
@@ -241,9 +315,11 @@ def validate_step(model, graphs, labels, loss_fn, device, config):
 def validate_epoch(model, dataset, config, epoch):
     """Run validation epoch with memory management"""
     model.eval()
+    dataset.reset_epoch()
     device = config['device']
     task_type = config['model']['task_type']
     task_loader_type = config['model']['task_loader_type']    
+    contrastive_types = ['infonce']
     
     # Initialize metrics based on task
     if task_type == 'similarity':
@@ -270,51 +346,47 @@ def validate_epoch(model, dataset, config, epoch):
     #     task_type=config['model']['task_type'],
     #     **config['model'].get('loss_params', {})
     # ).to(device, non_blocking=True)
-    if task_type == 'similarity':
-        loss_fn = SimilarityLoss(
-            device = device
-            # **config['mode'].get('loss_params', {})
-        ).to(device, non_blocking=True)
-    elif task_type == 'info_nce':
-        loss_fn = InfoNCELoss(
-            device=device,
-            temperature=config['model'].get('temperature', 0.07)
-        )
-    else:
-        loss_fn = EntailmentLoss(device).to(device=device, non_blocking=True)
-    
-    if task_loader_type == 'contrastive':
+    loss_loader = 'other' if task_loader_type != 'aggregative' else task_loader_type
+    loss_fn = loss_handlers[task_type][loss_loader](
+        device = device,
+        temperature = config['model'].get('temperature', 0.07),
+        aggregation = config['model'].get('aggregation', 'attention'),
+        threshold = config['model'].get("threshold", 0.5),
+        classes = config['model'].get("classes", 3)
+    )
+    if task_type in contrastive_types:
         return validate_epoch_contrastive(model, dataset, loss_fn, config, epoch)
     
     # Get total batches for progress bar
-    n_samples = len(dataset) if hasattr(dataset, '__len__') else None
-    n_batches = n_samples // config['data']['batch_size'] if n_samples else None
     
+    if 'aggregative' in task_loader_type:
+        data_loader = get_paired_groups_dataloader(dataset, config['data']['num_workers'], persistent_workers=False) 
+    else:
+        data_loader = dataset.pairs(config['data']['batch_size'])
+    n_batches = len(data_loader) if hasattr(data_loader, '__len__') else None
     # Create progress bar
     pbar = tqdm(
-        enumerate(dataset.pairs(config['data']['batch_size'])),
+        enumerate(data_loader),
         total=n_batches,
         desc=f'Validation Epoch {epoch}',
         leave=False
     )
     
     all_predictions = []
-    all_labels = []
     start_time = time.time()
     
     # Monitor memory at start
     MemoryMonitor.log_memory(prefix='Validation start: ')
     
-    for batch_idx, (graphs, labels) in pbar:
+    for batch_idx, (graphs, batch_info) in pbar:
         try:
             # Validation step
             loss, predictions, batch_metrics = validate_step(
-                model, graphs, labels, loss_fn, device, config
+                model, graphs, batch_info, loss_fn, device, config
             )
             
             # Store predictions
             all_predictions.append(predictions.cpu())
-            all_labels.append(labels.cpu())
             
             # Update metrics
             batch_time = time.time() - start_time
@@ -329,7 +401,7 @@ def validate_epoch(model, dataset, config, epoch):
                 'loss': f"{loss:.4f}",
                 'time': f"{batch_time:.3f}s"
             }
-            if task_type == 'similarity':
+            if task_type == 'similarity' or task_type == 'similarity_aggregative':
                 progress_metrics['corr'] = f"{batch_metrics['correlation']:.4f}"
                 progress_metrics['mse'] = f"{batch_metrics['mse']:.4f}"
             else:

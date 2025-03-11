@@ -10,14 +10,16 @@ logger = logging.getLogger(__name__)
 class ExperimentManager:
     """Manages experiment checkpoints and configs"""
     
-    def __init__(self, task_type, config, timestamp=None):
+    def __init__(self, task_type, config, override=None, timestamp=None):
         self.task_type = task_type
         self.config = config
+        self.override = override
         self.timestamp = timestamp or datetime.now().strftime("%Y%m%d_%H%M%S")
         
+        dataset_type = self.config['data']['dataset_type']
         # Setup directories
-        self.base_dir = Path("experiments")
-        self.experiment_dir = self.base_dir / f"{task_type}_{self.timestamp}"
+        self.base_dir = Path("/home/jlunder/research/experiments")
+        self.experiment_dir = self.base_dir / f"{task_type}_{dataset_type}_{self.timestamp}"
         self.checkpoint_dir = self.experiment_dir / "checkpoints"
         self.config_dir = self.experiment_dir / "config"
         
@@ -33,7 +35,9 @@ class ExperimentManager:
         """Save experiment config"""
         with open(self.config_dir / "config.yaml", 'w') as f:
             yaml.dump(self.config, f)
-            
+        if self.override:
+            with open(self.config_dir / "override.yaml", 'w') as f:
+                yaml.dump(self.override, f)
     def get_checkpoint_path(self, epoch=None):
         """Get path for checkpoint"""
         if epoch is not None:
@@ -47,7 +51,8 @@ class ExperimentManager:
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'metrics': metrics,
-            'config': self.config
+            'config': self.config,
+            'override': self.override
         }
         
         path = self.get_checkpoint_path(epoch)
@@ -61,7 +66,8 @@ class ExperimentManager:
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'metrics': metrics,
-            'config': self.config
+            'config': self.config,
+            'override': self.override
         }
         
         path = self.get_checkpoint_path()
@@ -69,30 +75,43 @@ class ExperimentManager:
         logger.info(f"Saved best model to {path}")
         
     @classmethod
-    def load_checkpoint(cls, checkpoint_path, config_override=None):
+    def load_checkpoint(cls, checkpoint_path, config=None, override=None):
         """Load checkpoint"""
         checkpoint = torch.load(checkpoint_path)
         
         # Extract timestamp from path if possible
         path = Path(checkpoint_path)
-        if path.parent.parent.name.startswith(('entailment_', 'similarity_', 'infonce_')):
-            timestamp = path.parent.parent.name.split('_', 1)[1]
-        else:
-            timestamp = None
+        # if path.parent.parent.name.startswith(('entailment_', 'similarity_', 'infonce_')):
+        #     timestamp = path.parent.parent.name.split('_', 1)[1]
+        # else:
+        #     timestamp = None
 
-        if config_override is None:
+        checkpoint_config_path = path.parent.parent / 'config/config.yaml'
+        with open(checkpoint_config_path, 'r') as fin:
+            checkpoint_config = yaml.safe_load(fin)
+
+        if config is None:
             print('setting with old config')
-            config = checkpoint['config']
+            config = checkpoint_config
         else:
-            print('setting with override config')
-            config = config_override
+            print('setting with new config')
+            config = config
             print(f'config: {config["model"]}')
+
+        if override is None:
+            print("setting existing override")
+            override = checkpoint.get('override', None)
+        else:
+            print("setting with new override")
+            override = override
+
             
         # Create experiment manager
         manager = cls(
             task_type=config['model']['task_type'],
             config=config,
-            timestamp=timestamp
+            override=override,
+            timestamp=None
         )
         
-        return checkpoint, manager, config
+        return checkpoint, manager, config, override

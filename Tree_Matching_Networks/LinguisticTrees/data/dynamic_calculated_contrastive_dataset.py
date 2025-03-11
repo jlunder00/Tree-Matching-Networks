@@ -54,6 +54,7 @@ class BatchInfo:
     anchor_positive_indexes: Dict
     anchor_negative_indexes: Dict
     strict_matching: bool
+    labeled: bool
 
 
 class DynamicCalculatedContrastiveDataset(IterableDataset):
@@ -99,7 +100,8 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
                  recycle_leftovers: bool = True,
                  allow_cross_dataset_negatives: bool = True,
                  model_type: str = 'matching',
-                 strict_matching: bool = False):
+                 strict_matching: bool = False,
+                 labeled: bool = False):
         """
         Args:
           data_dir: Directory containing the shard JSON files.
@@ -118,6 +120,8 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
             self.data_dirs = [Path(data_dir)]
         else:
             self.data_dirs = [Path(dir) for dir in data_dir]
+
+        self.labeled = labeled #means that positive/negative is already defined, and we are given groups that contain a pair of tree groups.
         self.config = config
         self.batch_size = batch_size
         self.A = anchors_per_group
@@ -445,7 +449,8 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
             pair_indices = [],
             anchor_positive_indexes = {},
             anchor_negative_indexes = {},
-            strict_matching = self.strict_matching
+            strict_matching = self.strict_matching,
+            labeled = self.labeled
         )
 
         if self.model_type == 'embedding': #format as pairs for graph matching model with attention network

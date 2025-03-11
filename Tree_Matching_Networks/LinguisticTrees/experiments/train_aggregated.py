@@ -7,6 +7,7 @@ import logging
 import argparse
 from datetime import datetime
 import sys
+import yaml
 try:
     from ..configs.default_tree_config import get_tree_config
     from ..configs.tree_data_config import TreeDataConfig
@@ -33,29 +34,36 @@ logger = logging.getLogger(__name__)
 def train_aggregative(args):
     """Full training loop for aggregative learning"""
     # Initialize experiment
+    base_config = None
+    base_config_path= args.config if args.config is not None else '/home/jlunder/research/Tree-Matching-Networks/Tree_Matching_Networks/LinguisticTrees/configs/experiment_configs/aggregative_config.yaml'
+    override_config = None
+    with open(base_config_path, 'r') as fin:
+        base_config = yaml.safe_load(fin)
+    if args.override:
+        with open(args.override, 'r') as fin:
+            override_config = yaml.safe_load(fin)
     if args.resume:
         logger.info(f"Resuming from checkpoint: {args.resume}")
-        logger.info(f"override config passed is: {args.config}")
-        if args.config:
-            config = get_tree_config(
-                task_type='similarity_aggregative',
-                base_config_path=args.config,
-                override_path=args.override
-            ) 
-        else:
-            config = None
+        logger.info(f"config passed is: {args.config}")
 
-        checkpoint, experiment, config = ExperimentManager.load_checkpoint(args.resume, config)
-        start_epoch = checkpoint['epoch'] + 1
+        if args.config is None:
+            base_config = None
+        checkpoint, experiment, base_config, override_config = ExperimentManager.load_checkpoint(args.resume, base_config, override_config)
+
+        if args.resume_with_epoch:
+            start_epoch = checkpoint['epoch'] + 1
+        else:
+            start_epoch = 0
     else:
         # Load fresh config
-        config = get_tree_config(
-            task_type='similarity_aggregative',  # New task type
-            base_config_path=args.config if args.config else '/home/jlunder/research/Tree-Matching-Networks/Tree_Matching_Networks/LinguisticTrees/configs/experiment_configs/aggregative_config.yaml',
-            override_path=args.override
-        )
-        experiment = ExperimentManager('aggregative', config)
+        experiment = ExperimentManager(base_config['model']['task_type'], base_config, override_config)
         start_epoch = 0
+
+    config = get_tree_config(
+        task_type='aggregative',
+        base_config=base_config, 
+        override_config=override_config
+    ) 
 
     # Check if this is a wandb sweep run
     is_sweep_run = wandb.run is not None and wandb.run.name is not None
@@ -66,11 +74,11 @@ def train_aggregative(args):
             project=config['wandb']['project'],
             name=f"aggregative_{experiment.timestamp}",
             config=config,
-            tags=['aggregative', *config['wandb'].get('tags', [])]
+            tags=[*config['wandb'].get('tags', [])]
         )
     else:
         # Update experiment tags if in a sweep
-        wandb.run.tags = list(set(wandb.run.tags) | set(['aggregative', *config['wandb'].get('tags', [])]))
+        wandb.run.tags = list(set(wandb.run.tags) | set([*config['wandb'].get('tags', [])]))
     
 
     # Data config
@@ -96,6 +104,12 @@ def train_aggregative(args):
     #     data_path=data_config.dev_path / "shard_000002.json",  # Adjust path as needed
     #     config=config
     # )
+    task_type = config['model']['task_type']
+    label_map = {'entails':1.0, 'neutral':0.0, 'contradiction':-1.0, '0': 0.0, '0.0':0.0, 0:0.0, '1':1.0, '1.0':1.0, 1:1.0}
+    if task_type == 'similarity':
+        label_norm = {'old':(0, 5), 'new':(-1, 1)}
+    else:
+        label_norm = None
     train_dataset = create_paired_groups_dataset(
         data_dir=[str(path) for path in data_config.train_paths],
         config=config,
@@ -107,8 +121,8 @@ def train_aggregative(args):
         prefetch_factor=config['data'].get('prefetch_factor', 2),
         max_active_files=4,
         min_trees_per_group=1,
-        label_map = {'entails':1.0, 'neutral':0.0, 'contradiction':-1.0},
-        label_norm = {'old':(0, 5), 'new':(-1, 1)}
+        label_map = label_map,
+        label_norm = label_norm 
     )
     
     val_dataset = create_paired_groups_dataset(
@@ -122,8 +136,8 @@ def train_aggregative(args):
         prefetch_factor=config['data'].get('prefetch_factor', 2),
         max_active_files=4,
         min_trees_per_group=1,
-        label_map = {'entails':1.0, 'neutral':0.0, 'contradiction':-1.0},
-        label_norm = {'old':(0, 5), 'new':(-1, 1)}
+        label_map = label_map,
+        label_norm = label_norm
     )
     
     # Initialize model and optimizer
@@ -188,7 +202,7 @@ def train_aggregative(args):
         else:
             patience_counter += 1
             
-        if patience_counter >= config['train']['patience']:
+        if patience_counter >= config['train']['patience'] and not args.ignore_patience:
             logger.info(f"Early stopping triggered after {epoch + 1} epochs")
             break
             
@@ -199,13 +213,16 @@ def train_aggregative(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str,
-                      help='Base config path')
+                      help='Base config path', default=None)
     parser.add_argument('--override', type=str,
-                      help='Override config path')
+                      help='Override config path', default=None)
     parser.add_argument('--resume', type=str,
                       help='Path to checkpoint to resume from')
     parser.add_argument('--debug', action='store_true',
                       help='Enable debug mode')
+    parser.add_argument('--resume_with_epoch', action='store_true',
+                        help='Pickup from same epoch number as previous run (meant for resuming crashed runs). If unset, will count epochs from 0 (meant for doing a full training run using the checkpoint)')
+    parser.add_argument('--ignore_patience', action='store_true')
 
     args = parser.parse_args()
     
