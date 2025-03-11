@@ -352,7 +352,9 @@ def validate_epoch(model, dataset, config, epoch):
         temperature = config['model'].get('temperature', 0.07),
         aggregation = config['model'].get('aggregation', 'attention'),
         threshold = config['model'].get("threshold", 0.5),
-        classes = config['model'].get("classes", 3)
+        num_classes = config['model'].get("num_classes", 3),
+        classifier_input_dim = config['model'].get("graph_rep_dim", 1792)*2,
+        classifier_hidden_dims = config['model'].get("classifier_hidden_dims", [512])
     )
     if task_type in contrastive_types:
         return validate_epoch_contrastive(model, dataset, loss_fn, config, epoch)

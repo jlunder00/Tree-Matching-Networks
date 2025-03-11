@@ -1,6 +1,6 @@
 
 model:
-  task_type: infonce
+  task_type: entailment
   task_loader_type: aggregative
   name: tree_matching
   model_type: matching
@@ -30,7 +30,7 @@ model:
 
 
 data:
-  dataset_type: patentmatch_balanced
+  dataset_type: snli 
 
   batch_size: 512
   strict_matching: False
@@ -38,7 +38,7 @@ data:
   num_workers: 8
   prefetch_factor: 1
   max_batches_per_epoch: 1000
-  contrastive_mode: True
+  contrastive_mode: False #True
 
 embedding_cache_dir: '/home/jlunder/research/TMN_DataGen/embedding_cache4/'
 use_gpu: false
@@ -46,7 +46,7 @@ use_gpu: false
 train:
   learning_rate: 0.000001
   weight_decay: 0.00001
-  n_epochs: 100
+  n_epochs: 500
   patience: 10
   gradient_accumulation_steps: 1
   clip_value: 1.0

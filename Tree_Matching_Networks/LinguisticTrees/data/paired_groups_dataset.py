@@ -255,6 +255,12 @@ class PairedGroupsDatasetBase(IterableDataset):
             group_idx = group.get('group_idx', 0)
             label_raw = group.get('label', 1.0 if self.contrastive_mode else 0.0)
             if isinstance(label_raw, str):
+                if label_raw not in self.label_map.keys():
+                    print(label_raw)
+                    print(list(group.keys()))
+                    print(group.get('text', 'wrong key'))
+                    print(group.get('text_b', 'wrong key'))
+                    continue
                 label_raw = self.label_map[label_raw]
             label = float(label_raw)
             if self.label_norm is not None:
@@ -278,9 +284,9 @@ class PairedGroupsDatasetBase(IterableDataset):
                 continue
 
             # Store tree counts for better batch calculation
-            print(group_id)
-            print(trees_a_count)
-            print(trees_b_count)
+            # print(group_id)
+            # print(trees_a_count)
+            # print(trees_b_count)
             self.group_counts[group_id] = {
                 'trees_a': trees_a_count,
                 'trees_b': trees_b_count

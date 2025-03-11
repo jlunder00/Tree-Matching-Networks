@@ -478,14 +478,19 @@ class TextLevelSimilarityLoss(BaseLoss):
 class TextLevelEntailmentLoss(BaseLoss):
     """Classification loss for text-level entailment"""
     
-    def __init__(self, device, num_classes=3, aggregation='mean', **kwargs):
+    def __init__(self, device, num_classes=3, aggregation='mean', classifier_input_dim=3584, classifier_hidden_dims=[512], **kwargs):
         super().__init__(device)
         self.aggregator = TreeAggregator(aggregation)
+        layer_0 = nn.Linear(classifier_input_dim, classifier_hidden_dims[0])
+        layers = [layer_0, nn.ReLU(), nn.Dropout(0.1)]
+        for i in range(1, len(classifier_hidden_dims)):
+            layers.append(nn.Linear(classifier_hidden_dims[i-1], classifier_hidden_dims[i]))
+            layers.append(nn.ReLU())
+            layers.append(nn.Dropout(0.1))
+        layers.append(nn.Linear(classifier_hidden_dims[-1], num_classes))
+
         self.classifier = nn.Sequential(
-            nn.Linear(2*768, 512),  # Assuming 768-dim embeddings
-            nn.ReLU(),
-            nn.Dropout(0.1),
-            nn.Linear(512, num_classes)
+            *layers
         ).to(device)
         self.criterion = nn.CrossEntropyLoss()
     

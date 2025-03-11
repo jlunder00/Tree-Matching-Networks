@@ -105,7 +105,7 @@ def train_aggregative(args):
     #     config=config
     # )
     task_type = config['model']['task_type']
-    label_map = {'entails':1.0, 'neutral':0.0, 'contradiction':-1.0, '0': 0.0, '0.0':0.0, 0:0.0, '1':1.0, '1.0':1.0, 1:1.0}
+    label_map = {'-': 1.0, 'entailment':1.0, 'neutral':0.0, 'contradiction':-1.0, '0': 0.0, '0.0':0.0, 0:0.0, '1':1.0, '1.0':1.0, 1:1.0}
     if task_type == 'similarity':
         label_norm = {'old':(0, 5), 'new':(-1, 1)}
     else:

@@ -164,7 +164,9 @@ def train_epoch(model, dataset, optimizer, config, epoch):
         temperature = config['model'].get('temperature', 0.07),
         aggregation = config['model'].get('aggregation', 'attention'),
         threshold = config['model'].get("threshold", 0.5),
-        classes = config['model'].get("classes", 3)
+        num_classes = config['model'].get("num_classes", 3),
+        classifier_input_dim = config['model'].get("graph_rep_dim", 1792)*2,
+        classifier_hidden_dims = config['model'].get("classifier_hidden_dims", [512])
     )
 
     # if task_type == 'similarity':
