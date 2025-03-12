@@ -271,7 +271,11 @@ class PairedGroupsDatasetBase(IterableDataset):
                 continue
                 
             # For contrastive mode, only consider positive pairs within groups
-            if self.contrastive_mode and label <= 0.5:
+            if not self.config['data'].get('allow_negatives', False) and self.contrastive_mode and label < 0:
+                continue
+            if not self.config['data'].get('allow_neutrals', False) and self.contrastive_mode and label == 0:
+                continue
+            if not self.config['data'].get('allow_positives', True) and self.contrastive_mode and label > 0:
                 continue
 
             # Count trees in each subgroup

@@ -166,7 +166,10 @@ def train_epoch(model, dataset, optimizer, config, epoch):
         threshold = config['model'].get("threshold", 0.5),
         num_classes = config['model'].get("num_classes", 3),
         classifier_input_dim = config['model'].get("graph_rep_dim", 1792)*2,
-        classifier_hidden_dims = config['model'].get("classifier_hidden_dims", [512])
+        classifier_hidden_dims = config['model'].get("classifier_hidden_dims", [512]),
+        positive_infonce_weight = config['model'].get("positive_infonce_weight", 1.0),
+        inverse_infonce_weight = config['model'].get("inverse_infonce_weight", 0.25),
+        midpoint_infonce_weight = config['model'].get("midpoint_infonce_weight", 0.25)
     )
 
     # if task_type == 'similarity':
@@ -219,7 +222,7 @@ def train_epoch(model, dataset, optimizer, config, epoch):
         })
     # Create data iterator with progress bar
     if task_loader_type == 'aggregative':
-        data_loader = get_paired_groups_dataloader(dataset, config['data']['num_workers']) 
+        data_loader = get_paired_groups_dataloader(dataset, config['data']['num_workers_train']) 
     else:
         data_loader = dataset.pairs(config['data']['batch_size'])
     n_batches = len(data_loader) if hasattr(data_loader, '__len__') else None
@@ -356,6 +359,10 @@ def train_epoch_contrastive(model, dataset, optimizer, loss_fn, config, epoch):
         'data_time': 0.0,
         'pos_similarity': 0.0, 
         'neg_similarity': 0.0,
+        'pos_distance': 0.0,
+        'neg_distance': 0.0,
+        'pos_midpoint': 0.0,
+        'neg_midpoint': 0.0,
         'raw_pos_sim': 0.0,
         'raw_neg_sim': 0.0
     }
@@ -400,6 +407,10 @@ def train_epoch_contrastive(model, dataset, optimizer, loss_fn, config, epoch):
                 'time': f'{batch_time:.3f}s',
                 'pos_sim': f"{batch_metrics['pos_similarity']:.4f}",
                 'neg_sim': f"{batch_metrics['neg_similarity']:.4f}",
+                'pos_dist': f"{batch_metrics['pos_distance']:.4f}",
+                'neg_dist': f"{batch_metrics['neg_distance']:.4f}",
+                'pos_mid': f"{batch_metrics['pos_midpoint']:.4f}",
+                'neg_mid': f"{batch_metrics['neg_midpoint']:.4f}",
                 # 'raw_pos_sim': f"{batch_metrics['raw_pos_sim']:.4f}",
                 # 'raw_neg_sim': f"{batch_metrics['raw_neg_sim']:.4f}"
             }

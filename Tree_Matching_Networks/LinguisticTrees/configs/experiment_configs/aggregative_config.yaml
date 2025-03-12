@@ -1,6 +1,6 @@
 
 model:
-  task_type: entailment
+  task_type: infonce
   task_loader_type: aggregative
   name: tree_matching
   model_type: matching
@@ -27,6 +27,9 @@ model:
   n_prop_layers: 5
   temperature: 0.05
   aggregation: attention
+  positive_infonce_weight: 1.0
+  inverse_infonce_weight: 0.25
+  midpoint_infonce_weight: 0.25
 
 
 data:
@@ -35,10 +38,14 @@ data:
   batch_size: 512
   strict_matching: False
   min_trees_per_group: 1
-  num_workers: 8
+  num_workers_train: 4
+  num_workers_val: 2
   prefetch_factor: 1
   max_batches_per_epoch: 1000
-  contrastive_mode: False #True
+  contrastive_mode: True
+  allow_negatives: True
+  allow_neutrals: True
+  allow_positives: True
 
 embedding_cache_dir: '/home/jlunder/research/TMN_DataGen/embedding_cache4/'
 use_gpu: false

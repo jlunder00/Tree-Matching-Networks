@@ -343,10 +343,13 @@ class InfoNCELoss(BaseLoss):
 class TextLevelContrastiveLoss(BaseLoss):
     """Contrastive loss for text-level embeddings"""
     
-    def __init__(self, device, temperature=0.07, aggregation='mean', **kwargs):
+    def __init__(self, device, temperature=0.07, aggregation='mean', positive_infonce_weight = True, inverse_infonce_weight = False, midpoint_infonce_weight = False, **kwargs):
         super().__init__(device)
         self.temperature = temperature
         self.aggregator = TreeAggregator(aggregation)
+        self.positive_infonce_weight = positive_infonce_weight
+        self.inverse_infonce_weight = inverse_infonce_weight
+        self.midpoint_infonce_weight = midpoint_infonce_weight
     
     def forward(self, 
                 embeddings: torch.Tensor, 
@@ -377,56 +380,121 @@ class TextLevelContrastiveLoss(BaseLoss):
             text_embeddings.unsqueeze(0),
             dim=2
         )
+        dist_matrix = 1 - sim_matrix
+        midpoint_matrix = 1 - torch.abs(sim_matrix)
         scaled_sim = sim_matrix / self.temperature
+        scaled_dist = dist_matrix / self.temperature
+        scaled_midpoint = midpoint_matrix / self.temperature
         
         # 4. Compute InfoNCE loss
         loss = 0
         n_valid_anchors = 0
-        
+        n_groups = len(batch_info.group_indices)
+
         for i, anchor_idx in enumerate(anchor_indices):
             # Current positive is the corresponding text in the pair
             pos_idx = pos_indices[i]
+
+            group_label = batch_info.group_labels[i]
+            if group_label > 0:
+                loss += self.positive_infonce_weight * F.cross_entropy(
+                    scaled_sim[anchor_idx].unsqueeze(0),
+                    torch.tensor([pos_idx], device=self.device)
+                )
+                n_valid_anchors += 1
+            elif group_label < 0:
+                # I think this is technically computing infonce on the distance matrix now
+                loss += self.inverse_infonce_weight * F.cross_entropy(
+                    scaled_dist[anchor_idx].unsqueeze(0),
+                    torch.tensor([pos_idx], device=self.device)
+                )
+                n_valid_anchors += 1
+            elif group_label == 0:
+                loss += self.midpoint_infonce_weight * F.cross_entropy(
+                    scaled_midpoint[anchor_idx].unsqueeze(0),
+                    torch.tensor([pos_idx], device=self.device)
+                )
+                n_valid_anchors += 1
+
+
+        
             
-            # Use InfoNCE format (treat one positive as target, all others as negatives)
-            loss += F.cross_entropy(
-                scaled_sim[anchor_idx].unsqueeze(0),
-                torch.tensor([pos_idx], device=self.device)
-            )
-            n_valid_anchors += 1
+            # # Use InfoNCE format (treat one positive as target, all others as negatives)
+            # loss += F.cross_entropy(
+            #     scaled_sim[anchor_idx].unsqueeze(0),
+            #     torch.tensor([pos_idx], device=self.device)
+            # )
+            # n_valid_anchors += 1
         
         # 5. Compute metrics
         with torch.no_grad():
-            metrics = self._compute_metrics(sim_matrix, anchor_indices, pos_indices)
+            metrics = self._compute_metrics(sim_matrix, dist_matrix, midpoint_matrix, anchor_indices, pos_indices, batch_info)
         
-        return loss / max(1, n_valid_anchors), sim_matrix, metrics
+        return loss / max(1, n_valid_anchors), (sim_matrix, dist_matrix, midpoint_matrix), metrics
     
     def _compute_metrics(self, 
                          sim_matrix: torch.Tensor, 
+                         dist_matrix: torch.Tensor,
+                         midpoint_matrix: torch.Tensor,
                          anchor_indices: List[int], 
-                         pos_indices: List[int]) -> Dict:
+                         pos_indices: List[int],
+                         batch_info) -> Dict:
         """Compute metrics for contrastive learning"""
         pos_sim = 0
         neg_sim = 0
+        pos_dist = 0
+        neg_dist = 0
+        pos_mid = 0
+        neg_mid = 0
         n_pos = 0
         n_neg = 0
-        
+        n_pos_dist = 0
+        n_neg_dist = 0
+        n_pos_mid = 0
+        n_neg_mid = 0
+
+
         for i, anchor_idx in enumerate(anchor_indices):
             pos_idx = pos_indices[i]
-            
-            # Positive similarity (with correct pair)
-            pos_sim += sim_matrix[anchor_idx, pos_idx].item()
-            n_pos += 1
+            group_label = batch_info.group_labels[i]
+            if group_label > 0:
+                # Positive similarity (with correct pair)
+                pos_sim += sim_matrix[anchor_idx, pos_idx].item()
+                n_pos += 1
+            elif group_label < 0:
+                pos_dist += dist_matrix[anchor_idx, pos_idx].item()
+                n_pos_dist += 1
+            elif group_label == 0:
+                pos_mid += midpoint_matrix[anchor_idx, pos_idx].item()
+                n_pos_mid += 1
+            else:
+                continue
             
             # Negative similarities (with all other text embeddings)
             for j, other_idx in enumerate(pos_indices):
                 if j != i:  # Skip the true positive
-                    neg_sim += sim_matrix[anchor_idx, other_idx].item()
-                    n_neg += 1
+                    if group_label > 0:
+                        neg_sim += sim_matrix[anchor_idx, other_idx].item()
+                        n_neg += 1
+                    elif group_label < 0:
+                        neg_dist += dist_matrix[anchor_idx, other_idx].item()
+                        n_neg_dist += 1
+                    elif group_label == 0:
+                        neg_mid += midpoint_matrix[anchor_idx, other_idx].item()
+                        n_neg_mid += 1
+                    else:
+                        continue
         
         return {
             'pos_similarity': pos_sim / max(1, n_pos),
             'neg_similarity': neg_sim / max(1, n_neg),
-            'similarity_gap': (pos_sim / max(1, n_pos)) - (neg_sim / max(1, n_neg))
+            'pos_distance': pos_dist / max(1, n_pos_dist),
+            'neg_distance': neg_dist / max(1, n_neg_dist),
+            'pos_midpoint': pos_mid / max(1, n_pos_mid),
+            'neg_midpoint': neg_mid / max(1, n_neg_mid),
+            'similarity_gap': (pos_sim / max(1, n_pos)) - (neg_sim / max(1, n_neg)),
+            'distance_gap': (pos_dist / max(1, n_pos_dist)) - (neg_dist / max(1, n_neg_dist)),
+            'midpoint_gap': (pos_mid / max(1, n_pos_mid)) - (neg_mid / max(1, n_neg_mid))
         }
 
 

@@ -45,71 +45,143 @@ def validate_step_contrastive(model, graphs, batch_info, loss_fn, device, config
             accuracy_metrics = {}
             
             # Accuracy@1: Whether the most similar item is the correct positive
-            top1_accuracy = 0
-            total_anchors = 0
+            top1_accuracy_overall = 0
+            top1_accuracy_sim = 0
+            top1_accuracy_dist = 0
+            top1_accuracy_mid = 0
+            sim_anchors = 0
+            dist_anchors = 0
+            mid_anchors = 0
 
             n_groups = len(batch_info.group_indices)
             anchor_indices = list(range(0, n_groups*2, 2))
             pos_indices = list(range(1, n_groups*2, 2))
+            sim_matrix, dist_matrix, mid_matrix = predictions[0], predictions[1], predictions[2]
             
             for i, anchor_idx in enumerate(anchor_indices):
                 # Get positive indices for this anchor
                 pos_idx = pos_indices[i]
                 
-                # Get similarities for this anchor with all other samples
-                anchor_similarities = predictions[anchor_idx]
+                positive_test = batch_info.group_labels[i] > 0
+                negative_test = batch_info.group_labels[i] < 0 
+                mid_test = batch_info.group_labels[i] < 0 
+                if positive_test:
+                    # Get similarities for this anchor with all other samples
+                    anchor_out = sim_matrix[anchor_idx]
+                elif negative_test: 
+                    anchor_out = dist_matrix[anchor_idx]
+                elif mid_test:
+                    anchor_out = mid_matrix[anchor_idx]
+                else:
+                    continue
                 
                 # Exclude self-similarity
                 # anchor_similarities[anchor_idx] = -float('inf')
                 
                 # Get the index of the highest similarity
-                top_idx = torch.argmax(anchor_similarities).item()
+                top_idx = torch.argmax(anchor_out).item()
                 
                 # Check if the top similarity is with a positive example
                 is_correct = top_idx == pos_idx
-                top1_accuracy += int(is_correct)
-                total_anchors += 1
+                if positive_test: 
+                    top1_accuracy_sim += int(is_correct)
+                    sim_anchors += 1
+                elif negative_test:
+                    top1_accuracy_dist += int(is_correct)
+                    dist_anchors += 1
+                elif mid_test:
+                    top1_accuracy_mid += int(is_correct)
+                    mid_anchors += 1
+                top1_accuracy_overall += int(is_correct)
                 
+            total_anchors = sim_anchors + dist_anchors + mid_anchors
             if total_anchors > 0:
-                accuracy_metrics['top1_accuracy'] = top1_accuracy / total_anchors
+                accuracy_metrics['top1_accuracy'] = top1_accuracy_overall / total_anchors
+            if sim_anchors > 0:
+                accuracy_metrics['top1_accuracy_sim'] = top1_accuracy_sim / sim_anchors
+            if dist_anchors > 0:
+                accuracy_metrics['top1_accuracy_dist'] = top1_accuracy_dist / dist_anchors
+            if mid_anchors > 0:
+                accuracy_metrics['top1_accuracy_mid'] = top1_accuracy_mid / mid_anchors
             
             # Recall@k (k=5): Percentage of positives in top k most similar items
-            k = min(5, predictions.size(0) - 1)  # Ensure k is valid
-            recall_at_k = 0
+            k = min(5, predictions[0].size(0) - 1)  # Ensure k is valid
+            recall_at_k_overall = 0
+            recall_at_k_sim = 0
+            recall_at_k_dist = 0
+            recall_at_k_mid = 0
+            # Mean Reciprocal Rank (MRR)
+            mrr = 0
+            mrr_sim = 0
+            mrr_dist = 0
+            mrr_mid = 0
             
             for i, anchor_idx in enumerate(anchor_indices):
                 pos_idx = pos_indices[i]
                 
-                sims = predictions[anchor_idx].clone()
+                positive_test = batch_info.group_labels[i] > 0 
+                negative_test = batch_info.group_labels[i] < 0
+                mid_test = batch_info.group_labels[i] < 0 
+                if positive_test:
+                    # Get similarities for this anchor with all other samples
+                    anchor_out = sim_matrix[anchor_idx].clone()
+                elif negative_test: 
+                    anchor_out = dist_matrix[anchor_idx].clone()
+                elif mid_test:
+                    anchor_out = mid_matrix[anchor_idx].clone()
+                else:
+                    continue
                 
                 # Get top k indices
-                _, top_k_indices = torch.topk(sims, k)
+                _, top_k_indices = torch.topk(anchor_out, k)
+                # Get ranks of all items
+                _, all_indices = torch.sort(anchor_out, descending=True)
                 
                 # Count positives in top k
                 correct = sum(1 for idx in top_k_indices if idx.item() == pos_idx)
-                recall_at_k += correct 
+                if positive_test:
+                    recall_at_k_sim += correct
+                elif negative_test:
+                    recall_at_k_dist += correct
+                elif mid_test:
+                    recall_at_k_mid += correct
+                recall_at_k_overall += correct 
+
+                if positive_test:
+                    for rank, idx in enumerate(all_indices):
+                        if idx.item() == pos_idx:
+                            mrr_sim += 1.0 / (rank + 1)
+                            mrr += 1.0 / (rank + 1)
+                            break
+                elif negative_test:
+                    for rank, idx in enumerate(all_indices):
+                        if idx.item() == pos_idx:
+                            mrr_dist += 1.0 / (rank + 1)
+                            mrr += 1.0 / (rank + 1)
+                            break
+                elif mid_test:
+                    for rank, idx in enumerate(all_indices):
+                        if idx.item() == pos_idx:
+                            mrr_mid += 1.0 / (rank + 1)
+                            mrr += 1.0 / (rank + 1)
+                            break
+
                 
             if total_anchors > 0:
-                accuracy_metrics[f'recall@{k}'] = recall_at_k / total_anchors
-            
-            # Mean Reciprocal Rank (MRR)
-            mrr = 0
-            for i, anchor_idx in enumerate(anchor_indices):
-                pos_idx = pos_indices[i]
-                
-                sims = predictions[anchor_idx].clone()
-                
-                # Get ranks of all items
-                _, indices = torch.sort(sims, descending=True)
-                
-                # Find rank of first positive
-                for rank, idx in enumerate(indices):
-                    if idx.item() == pos_idx:
-                        mrr += 1.0 / (rank + 1)  # +1 because ranks are 0-indexed
-                        break
-            
-            if total_anchors > 0:
+                accuracy_metrics[f'recall@{k}'] = recall_at_k_overall / total_anchors
                 accuracy_metrics['mrr'] = mrr / total_anchors
+            if sim_anchors > 0:
+                accuracy_metrics[f'recall@{k}_sim'] = recall_at_k_sim / sim_anchors
+                accuracy_metrics['mrr_sim'] = mrr_sim / total_anchors
+            if dist_anchors > 0:
+                accuracy_metrics[f'recall@{k}_dist'] = recall_at_k_dist / dist_anchors
+                accuracy_metrics['mrr_dist'] = mrr_dist / total_anchors
+            if mid_anchors > 0:
+                accuracy_metrics[f'recall@{k}_mid'] = recall_at_k_mid / mid_anchors
+                accuracy_metrics['mrr_mid'] = mrr_mid / total_anchors
+            
+                
+            
         else:
 
             # Calculate similarity matrix for all embeddings
@@ -354,7 +426,10 @@ def validate_epoch(model, dataset, config, epoch):
         threshold = config['model'].get("threshold", 0.5),
         num_classes = config['model'].get("num_classes", 3),
         classifier_input_dim = config['model'].get("graph_rep_dim", 1792)*2,
-        classifier_hidden_dims = config['model'].get("classifier_hidden_dims", [512])
+        classifier_hidden_dims = config['model'].get("classifier_hidden_dims", [512]),
+        positive_infonce_weight = config['model'].get("positive_infonce_weight", 1.0),
+        inverse_infonce_weight = config['model'].get("inverse_infonce_weight", 0.25),
+        midpoint_infonce_weight = config['model'].get("midpoint_infonce_weight", 0.25)
     )
     if task_type in contrastive_types:
         return validate_epoch_contrastive(model, dataset, loss_fn, config, epoch)
@@ -362,7 +437,7 @@ def validate_epoch(model, dataset, config, epoch):
     # Get total batches for progress bar
     
     if 'aggregative' in task_loader_type:
-        data_loader = get_paired_groups_dataloader(dataset, config['data']['num_workers'], persistent_workers=False) 
+        data_loader = get_paired_groups_dataloader(dataset, config['data']['num_workers_val'], persistent_workers=False) 
     else:
         data_loader = dataset.pairs(config['data']['batch_size'])
     n_batches = len(data_loader) if hasattr(data_loader, '__len__') else None
@@ -487,11 +562,19 @@ def validate_epoch_contrastive(model, dataset, loss_fn, config, epoch):
         'data_time': 0.0,
         'pos_similarity': 0.0, 
         'neg_similarity': 0.0,
-        'raw_pos_sim': 0.0,
-        'raw_neg_sim': 0.0,
+        'pos_distance': 0.0,
+        'neg_distance': 0.0,
+        'pos_midpoint': 0.0,
+        'neg_midpoint': 0.0,
         'top1_accuracy': 0.0,
         'recall@5': 0.0,
-        'mrr': 0.0
+        'mrr': 0.0,
+        'top1_accuracy_dist': 0.0,
+        'recall@5_dist': 0.0,
+        'mrr_dist': 0.0,
+        'top1_accuracy_mid': 0.0,
+        'recall@5_mid': 0.0,
+        'mrr_mid': 0.0
     }
     
     # Initial memory check
@@ -524,6 +607,10 @@ def validate_epoch_contrastive(model, dataset, loss_fn, config, epoch):
                 'time': f'{batch_time:.3f}s',
                 'pos_sim': f"{batch_metrics.get('pos_similarity', 0):.4f}",
                 'neg_sim': f"{batch_metrics.get('neg_similarity', 0):.4f}",
+                'pos_dist': f"{batch_metrics.get('pos_distance', 0):.4f}",
+                'neg_dist': f"{batch_metrics.get('neg_distance', 0):.4f}",
+                'pos_mid': f"{batch_metrics.get('pos_midpoint', 0):.4f}",
+                'neg_mid': f"{batch_metrics.get('neg_midpoint', 0):.4f}",
             }
             
             # Add accuracy metrics if available
