@@ -22,6 +22,7 @@ class TreeDataConfig:
     spacy_variant: Literal['trf', 'lg', 'sm'] = 'trf'
     use_sharded_train: bool = True
     use_sharded_validate: bool = True
+    use_sharded_test: bool = True
     
     # New option to allow cross-dataset negatives
     allow_cross_dataset_negatives: bool = True
@@ -77,6 +78,8 @@ class TreeDataConfig:
             base_dir += '_sharded'
         if split == 'dev' and self.use_sharded_validate:
             base_dir += '_sharded'
+        if split == 'test' and self.use_sharded_test:
+            base_dir += '_sharded'
 
         if base_dataset == 'amazonqa_multiple':
             if category:
@@ -95,7 +98,7 @@ class TreeDataConfig:
             if path.exists():
                 paths.append(path)
             else:
-                print(f"Warning: Path does not exist: {path}")
+                print(f"Warning: Path does not. exist: {path}")
         return paths
     
     @property 

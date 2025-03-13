@@ -169,7 +169,9 @@ def train_epoch(model, dataset, optimizer, config, epoch):
         classifier_hidden_dims = config['model'].get("classifier_hidden_dims", [512]),
         positive_infonce_weight = config['model'].get("positive_infonce_weight", 1.0),
         inverse_infonce_weight = config['model'].get("inverse_infonce_weight", 0.25),
-        midpoint_infonce_weight = config['model'].get("midpoint_infonce_weight", 0.25)
+        midpoint_infonce_weight = config['model'].get("midpoint_infonce_weight", 0.25),
+        thresh_low = config['model'].get("thresh_low", -1),
+        thresh_high = config['model'].get("thresh_high", 0)
     )
 
     # if task_type == 'similarity':
@@ -222,7 +224,7 @@ def train_epoch(model, dataset, optimizer, config, epoch):
         })
     # Create data iterator with progress bar
     if task_loader_type == 'aggregative':
-        data_loader = get_paired_groups_dataloader(dataset, config['data']['num_workers_train']) 
+        data_loader = get_paired_groups_dataloader(dataset, config['data']['num_workers_train'], persistent_workers=False) 
     else:
         data_loader = dataset.pairs(config['data']['batch_size'])
     n_batches = len(data_loader) if hasattr(data_loader, '__len__') else None

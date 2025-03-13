@@ -1048,7 +1048,7 @@ def get_paired_groups_dataloader(dataset, num_workers=4, pin_memory=True, persis
         collate_fn=lambda x: x[0],  # Unwrap the singleton
         num_workers=num_workers,
         pin_memory=pin_memory,
-        prefetch_factor=dataset.prefetch_factor,
+        prefetch_factor=dataset.prefetch_factor if num_workers > 0 else None,
         persistent_workers=True if num_workers > 0 and persistent_workers else False
     )
 

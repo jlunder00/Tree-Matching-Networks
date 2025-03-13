@@ -1,4 +1,4 @@
-
+#config
 model:
   task_type: infonce
   task_loader_type: aggregative
@@ -27,13 +27,18 @@ model:
   n_prop_layers: 5
   temperature: 0.05
   aggregation: attention
-  positive_infonce_weight: 1.0
-  inverse_infonce_weight: 0.25
-  midpoint_infonce_weight: 0.25
+  positive_infonce_weight: 0.75
+  inverse_infonce_weight: 0.3
+  midpoint_infonce_weight: 0.5
+  thresh_low: -0.33
+  thresh_high: 0.33
+  # thresh_low: 0
+  # thresh_high: 0
+
 
 
 data:
-  dataset_type: snli 
+  dataset_type: snli
 
   batch_size: 512
   strict_matching: False
@@ -61,7 +66,7 @@ train:
 
 wandb:
   project: tree-embedding
-  tags: [aggregative, patentmatch_balanced]
+  tags: [aggregative, snli]
   log_interval: 10
   memory_logging: true
 

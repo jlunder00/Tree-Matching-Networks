@@ -62,9 +62,9 @@ def validate_step_contrastive(model, graphs, batch_info, loss_fn, device, config
                 # Get positive indices for this anchor
                 pos_idx = pos_indices[i]
                 
-                positive_test = batch_info.group_labels[i] > 0
-                negative_test = batch_info.group_labels[i] < 0 
-                mid_test = batch_info.group_labels[i] < 0 
+                positive_test = batch_info.group_labels[i] > config['model'].get('thresh_high', 0) 
+                mid_test = not positive_test and batch_info.group_labels[i] > config['model'].get('thresh_low', -1)
+                negative_test = not mid_test and batch_info.group_labels[i] <= config['model'].get('thresh_low', -1)
                 if positive_test:
                     # Get similarities for this anchor with all other samples
                     anchor_out = sim_matrix[anchor_idx]
@@ -119,9 +119,9 @@ def validate_step_contrastive(model, graphs, batch_info, loss_fn, device, config
             for i, anchor_idx in enumerate(anchor_indices):
                 pos_idx = pos_indices[i]
                 
-                positive_test = batch_info.group_labels[i] > 0 
-                negative_test = batch_info.group_labels[i] < 0
-                mid_test = batch_info.group_labels[i] < 0 
+                positive_test = batch_info.group_labels[i] > config['model'].get('thresh_high', 0) 
+                mid_test = not positive_test and batch_info.group_labels[i] > config['model'].get('thresh_low', -1)
+                negative_test = not mid_test and batch_info.group_labels[i] <= config['model'].get('thresh_low', -1)
                 if positive_test:
                     # Get similarities for this anchor with all other samples
                     anchor_out = sim_matrix[anchor_idx].clone()
@@ -429,7 +429,9 @@ def validate_epoch(model, dataset, config, epoch):
         classifier_hidden_dims = config['model'].get("classifier_hidden_dims", [512]),
         positive_infonce_weight = config['model'].get("positive_infonce_weight", 1.0),
         inverse_infonce_weight = config['model'].get("inverse_infonce_weight", 0.25),
-        midpoint_infonce_weight = config['model'].get("midpoint_infonce_weight", 0.25)
+        midpoint_infonce_weight = config['model'].get("midpoint_infonce_weight", 0.25),
+        thresh_low = config['model'].get("thresh_low", -1),
+        thresh_high = config['model'].get("thresh_high", 0)
     )
     if task_type in contrastive_types:
         return validate_epoch_contrastive(model, dataset, loss_fn, config, epoch)

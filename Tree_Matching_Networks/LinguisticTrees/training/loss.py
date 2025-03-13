@@ -343,13 +343,15 @@ class InfoNCELoss(BaseLoss):
 class TextLevelContrastiveLoss(BaseLoss):
     """Contrastive loss for text-level embeddings"""
     
-    def __init__(self, device, temperature=0.07, aggregation='mean', positive_infonce_weight = True, inverse_infonce_weight = False, midpoint_infonce_weight = False, **kwargs):
+    def __init__(self, device, temperature=0.07, aggregation='mean', positive_infonce_weight = True, inverse_infonce_weight = False, midpoint_infonce_weight = False, thresh_high = 0, thresh_low = -1, **kwargs):
         super().__init__(device)
         self.temperature = temperature
         self.aggregator = TreeAggregator(aggregation)
         self.positive_infonce_weight = positive_infonce_weight
         self.inverse_infonce_weight = inverse_infonce_weight
         self.midpoint_infonce_weight = midpoint_infonce_weight
+        self.thresh_high = thresh_high
+        self.thresh_low = thresh_low
     
     def forward(self, 
                 embeddings: torch.Tensor, 
@@ -396,22 +398,22 @@ class TextLevelContrastiveLoss(BaseLoss):
             pos_idx = pos_indices[i]
 
             group_label = batch_info.group_labels[i]
-            if group_label > 0:
+            if group_label > self.thresh_high:
                 loss += self.positive_infonce_weight * F.cross_entropy(
                     scaled_sim[anchor_idx].unsqueeze(0),
                     torch.tensor([pos_idx], device=self.device)
                 )
                 n_valid_anchors += 1
-            elif group_label < 0:
-                # I think this is technically computing infonce on the distance matrix now
-                loss += self.inverse_infonce_weight * F.cross_entropy(
-                    scaled_dist[anchor_idx].unsqueeze(0),
+            elif group_label > self.thresh_low:
+                loss += self.midpoint_infonce_weight * F.cross_entropy(
+                    scaled_midpoint[anchor_idx].unsqueeze(0),
                     torch.tensor([pos_idx], device=self.device)
                 )
                 n_valid_anchors += 1
-            elif group_label == 0:
-                loss += self.midpoint_infonce_weight * F.cross_entropy(
-                    scaled_midpoint[anchor_idx].unsqueeze(0),
+            elif group_label <= self.thresh_low:
+                # I think this is technically computing infonce on the distance matrix now
+                loss += self.inverse_infonce_weight * F.cross_entropy(
+                    scaled_dist[anchor_idx].unsqueeze(0),
                     torch.tensor([pos_idx], device=self.device)
                 )
                 n_valid_anchors += 1
@@ -457,31 +459,31 @@ class TextLevelContrastiveLoss(BaseLoss):
         for i, anchor_idx in enumerate(anchor_indices):
             pos_idx = pos_indices[i]
             group_label = batch_info.group_labels[i]
-            if group_label > 0:
+            if group_label > self.thresh_high:
                 # Positive similarity (with correct pair)
                 pos_sim += sim_matrix[anchor_idx, pos_idx].item()
                 n_pos += 1
-            elif group_label < 0:
-                pos_dist += dist_matrix[anchor_idx, pos_idx].item()
-                n_pos_dist += 1
-            elif group_label == 0:
+            elif group_label > self.thresh_low:
                 pos_mid += midpoint_matrix[anchor_idx, pos_idx].item()
                 n_pos_mid += 1
+            elif group_label <= self.thresh_low:
+                pos_dist += dist_matrix[anchor_idx, pos_idx].item()
+                n_pos_dist += 1
             else:
                 continue
             
             # Negative similarities (with all other text embeddings)
             for j, other_idx in enumerate(pos_indices):
                 if j != i:  # Skip the true positive
-                    if group_label > 0:
+                    if group_label > self.thresh_high:
                         neg_sim += sim_matrix[anchor_idx, other_idx].item()
                         n_neg += 1
-                    elif group_label < 0:
-                        neg_dist += dist_matrix[anchor_idx, other_idx].item()
-                        n_neg_dist += 1
-                    elif group_label == 0:
+                    elif group_label > self.thresh_low:
                         neg_mid += midpoint_matrix[anchor_idx, other_idx].item()
                         n_neg_mid += 1
+                    elif group_label <= self.thresh_low:
+                        neg_dist += dist_matrix[anchor_idx, other_idx].item()
+                        n_neg_dist += 1
                     else:
                         continue
         
@@ -546,21 +548,28 @@ class TextLevelSimilarityLoss(BaseLoss):
 class TextLevelEntailmentLoss(BaseLoss):
     """Classification loss for text-level entailment"""
     
-    def __init__(self, device, num_classes=3, aggregation='mean', classifier_input_dim=3584, classifier_hidden_dims=[512], **kwargs):
+    # def __init__(self, device, num_classes=3, aggregation='mean', classifier_input_dim=3584, classifier_hidden_dims=[512], **kwargs):
+    #     super().__init__(device)
+    #     self.aggregator = TreeAggregator(aggregation)
+    #     layer_0 = nn.Linear(classifier_input_dim, classifier_hidden_dims[0])
+    #     layers = [layer_0, nn.ReLU(), nn.Dropout(0.1)]
+    #     for i in range(1, len(classifier_hidden_dims)):
+    #         layers.append(nn.Linear(classifier_hidden_dims[i-1], classifier_hidden_dims[i]))
+    #         layers.append(nn.ReLU())
+    #         layers.append(nn.Dropout(0.1))
+    #     layers.append(nn.Linear(classifier_hidden_dims[-1], num_classes))
+
+    #     self.classifier = nn.Sequential(
+    #         *layers
+    #     ).to(device)
+    #     self.criterion = nn.CrossEntropyLoss()
+
+    def __init__(self, device, thresh_high, thresh_low, aggregation='mean', **kwargs):
         super().__init__(device)
         self.aggregator = TreeAggregator(aggregation)
-        layer_0 = nn.Linear(classifier_input_dim, classifier_hidden_dims[0])
-        layers = [layer_0, nn.ReLU(), nn.Dropout(0.1)]
-        for i in range(1, len(classifier_hidden_dims)):
-            layers.append(nn.Linear(classifier_hidden_dims[i-1], classifier_hidden_dims[i]))
-            layers.append(nn.ReLU())
-            layers.append(nn.Dropout(0.1))
-        layers.append(nn.Linear(classifier_hidden_dims[-1], num_classes))
-
-        self.classifier = nn.Sequential(
-            *layers
-        ).to(device)
-        self.criterion = nn.CrossEntropyLoss()
+        self.thresh_high = thresh_high
+        self.thresh_low = thresh_low
+        self.criterion = nn.MSELoss()
     
     def forward(self, 
                 embeddings: torch.Tensor, 
@@ -586,24 +595,33 @@ class TextLevelEntailmentLoss(BaseLoss):
         text_b_embeddings = text_embeddings[1::2]  # Odd indices
         
         # 3. Concatenate text embeddings for classification
-        pair_features = torch.cat([text_a_embeddings, text_b_embeddings], dim=1)
+        # pair_features = torch.cat([text_a_embeddings, text_b_embeddings], dim=1)
+        sim_mat = F.cosine_similarity(text_a_embeddings, text_b_embeddings, dim=1)
+
+        predictions = torch.where(sim_mat > self.thresh_high,
+                                  torch.tensor(1, device=self.device),
+                                  torch.where(sim_mat < self.thresh_low,
+                                              torch.tensor(-1, device=self.device),
+                                              torch.tensor(0, device=self.device)))
         
-        # 4. Convert labels (-1, 0, 1) to class indices (0, 1, 2)
-        labels = torch.tensor(
-            [int(l + 1) for l in batch_info.group_labels], 
-            device=self.device
-        ).long()
+        # # 4. Convert labels (-1, 0, 1) to class indices (0, 1, 2)
+        # labels = torch.tensor(
+        #     [int(l + 1) for l in batch_info.group_labels], 
+        #     device=self.device
+        # ).long()
+        target = torch.tensor(batch_info.group_labels, device=self.device).float()
         
         # 5. Compute classification logits and loss
-        logits = self.classifier(pair_features)
-        loss = self.criterion(logits, labels)
+        # logits = self.classifier(pair_features)
+        loss = self.criterion(sim_mat, target)
         
         # 6. Get predictions and compute metrics
-        predictions = torch.argmax(logits, dim=1) - 1  # Convert back to (-1, 0, 1)
+        # predictions = torch.argmax(logits, dim=1) - 1  # Convert back to (-1, 0, 1)
         
         with torch.no_grad():
+            accuracy = (predictions == target.long()).float().mean().item()
             metrics = {
-                'accuracy': (predictions == (labels - 1)).float().mean().item(),
+                'accuracy': accuracy,
             }
         
         return loss, predictions, metrics
