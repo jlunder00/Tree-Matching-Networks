@@ -1,6 +1,6 @@
 #config
 model:
-  task_type: infonce
+  task_type: entailment
   task_loader_type: aggregative
   name: tree_matching
   model_type: matching
