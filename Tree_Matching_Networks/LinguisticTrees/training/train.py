@@ -77,12 +77,6 @@ def train_step(model, graphs: GraphData, batch_info: PairedGroupBatchInfo,
                 n_graphs=graphs.n_graphs
             )
             
-        # Enable gradient checkpointing if configured
-        # if config['model'].get('gradient_checkpointing', False):
-        #     model.enable_checkpointing()
-            
-        # Mixed precision forward pass
-        # with torch.autocast(device):
         # Forward pass
         embeddings = model(
             graphs.node_features,
@@ -99,39 +93,14 @@ def train_step(model, graphs: GraphData, batch_info: PairedGroupBatchInfo,
         loss = loss / config['train']['gradient_accumulation_steps']
         loss.backward()
 
-        
-        # # Compute loss based on model type
-        # if config['model']['task_type'] == 'similarity':
-        #     x, y = outputs[::2], outputs[1::2]
-        #     loss, predictions, metrics = loss_fn(x, y, labels)
-        # else:  # entailment
-        #     loss, predictions, metrics = loss_fn(outputs, labels)
-        # 
-        # # Scale loss for accumulation
-        # loss = loss / config['train']['gradient_accumulation_steps']
-        #     
-        # # Scaled backward pass
-        # scaler.scale(loss).backward()
-        # 
-        # # Unscale gradients for clipping
-        # scaler.unscale_(optimizer)
-        # torch.nn.utils.clip_grad_norm_(
-        #     model.parameters(), 
-        #     config['train']['clip_value']
-        # )
-        # 
-        # # Step optimizer and update scaler
-        # scaler.step(optimizer)
-        # scaler.update()
-        # 
         # # Clear gradients
         # optimizer.zero_grad(set_to_none=True)
         # 
-        # # Move predictions to CPU and clear cache
-        # predictions = predictions.cpu()
-        # if config['train'].get('aggressive_cleanup', False):
-        #     torch.cuda.empty_cache()
-        # 
+        # Move predictions to CPU and clear cache
+        predictions = predictions.cpu()
+        if config['train'].get('aggressive_cleanup', False):
+            torch.cuda.empty_cache()
+
         return loss.item() * config['train']['gradient_accumulation_steps'], predictions, metrics
         
     except RuntimeError as e:
@@ -152,12 +121,6 @@ def train_epoch(model, dataset, optimizer, config, epoch):
     task_loader_type = config['model']['task_loader_type']    
     contrastive_types = ['infonce']
     
-    # Initialize loss function
-    # loss_fn = TreeMatchingLoss(
-    #     device=device,
-    #     task_type=task_type,
-    #     **config['model'].get('loss_params', {})
-    # ).to(device, non_blocking=True)
     loss_loader = 'other' if task_loader_type != 'aggregative' else task_loader_type
     loss_fn = loss_handlers[task_type][loss_loader](
         device = device,
@@ -173,30 +136,6 @@ def train_epoch(model, dataset, optimizer, config, epoch):
         thresh_low = config['model'].get("thresh_low", -1),
         thresh_high = config['model'].get("thresh_high", 0)
     )
-
-    # if task_type == 'similarity':
-    #     loss_fn = SimilarityLoss(
-    #         device = device
-    #         # **config['mode'].get('loss_params', {})
-    #     ).to(device, non_blocking=True)
-    # elif task_type == 'info_nce':
-    #     loss_fn = InfoNCELoss(
-    #         device=device,
-    #         temperature=config['model'].get('temperature', 0.07)
-    #     )
-    # elif task_type == 'similarity_aggregative':
-    #     loss_fn = TextLevelSimilarityLoss(
-    #         device = device,
-    #         aggregation = config['model']['aggregation']
-    #     )
-    # elif task_type == 'contrastive_aggregative':
-    #     loss_fn = TextLevelContrastiveLoss(
-    #         device = device,
-    #         aggregation = config['model']['aggregation']
-    #     )
-    # else:
-    #     loss_fn = EntailmentLoss(device).to(device=device, non_blocking=True)
-    
 
     if task_type in contrastive_types:
         return train_epoch_contrastive(model, dataset, optimizer, loss_fn, config, epoch)
@@ -413,8 +352,6 @@ def train_epoch_contrastive(model, dataset, optimizer, loss_fn, config, epoch):
                 'neg_dist': f"{batch_metrics['neg_distance']:.4f}",
                 'pos_mid': f"{batch_metrics['pos_midpoint']:.4f}",
                 'neg_mid': f"{batch_metrics['neg_midpoint']:.4f}",
-                # 'raw_pos_sim': f"{batch_metrics['raw_pos_sim']:.4f}",
-                # 'raw_neg_sim': f"{batch_metrics['raw_neg_sim']:.4f}"
             }
             pbar.set_postfix(progress)
             

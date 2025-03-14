@@ -14,7 +14,6 @@ import copy
 import torch
 from torch.utils.data import IterableDataset, DataLoader, get_worker_info
 
-# Import your feature extractor and tree-to-graph conversion utility.
 from TMN_DataGen import FeatureExtractor
 try:
     from .data_utils import convert_tree_to_graph_data, GraphData, get_min_groups_trees_per_group, get_min_groups_pairs_per_anchor

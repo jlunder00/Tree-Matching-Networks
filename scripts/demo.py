@@ -233,10 +233,12 @@ def main():
     grouped_metadata = []
     grouped_sentences = []  # List of tuples: (sentences_from_A, sentences_from_B)
     for i, (text_a, text_b) in enumerate(text_pairs):
-        text_a_clean = preprocessor.preprocess(text_a)
-        text_b_clean = preprocessor.preprocess(text_b)
-        sentences_a = splitter.split(text_a_clean)
-        sentences_b = splitter.split(text_b_clean)
+        sentences_a = splitter.split(text_a)
+        sentences_b = splitter.split(text_b)
+        sentences_a = [preprocessor.preprocess(a) for a in sentences_a]
+        sentences_b = [preprocessor.preprocess(b) for b in sentences_b]
+        text_a_clean = '.'.join(sentences_a)
+        text_b_clean = '.'.join(sentences_b)
         group_id = generate_group_id()
         metadata = {
             "group_id": group_id,
@@ -336,6 +338,7 @@ def main():
             'trees_a': trees_a,
             'trees_b': trees_b
         })
+
     
     # 8. Create a dummy PairedGroupBatchInfo object.
     # Here we extract for each group the original text and the trees converted to graph data.

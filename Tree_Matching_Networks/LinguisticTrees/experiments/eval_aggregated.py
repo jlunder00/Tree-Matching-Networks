@@ -21,8 +21,6 @@ try:
     from ..data.paired_groups_dataset import create_paired_groups_dataset, get_paired_groups_dataloader
     from ..training.loss_handlers import LOSS_HANDLERS
     from ..data.data_utils import GraphData
-    from ..data.batch_utils import BatchInfo
-    from ..data.paired_groups_dataset import PairedGroupBatchInfo
 except:
     from Tree_Matching_Networks.LinguisticTrees.configs.default_tree_config import get_tree_config
     from Tree_Matching_Networks.LinguisticTrees.configs.tree_data_config import TreeDataConfig

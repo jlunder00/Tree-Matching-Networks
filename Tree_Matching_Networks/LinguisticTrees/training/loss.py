@@ -547,7 +547,7 @@ class TextLevelSimilarityLoss(BaseLoss):
 
 class TextLevelEntailmentLoss(BaseLoss):
     """Classification loss for text-level entailment"""
-    
+    # Criterion version - bad 
     # def __init__(self, device, num_classes=3, aggregation='mean', classifier_input_dim=3584, classifier_hidden_dims=[512], **kwargs):
     #     super().__init__(device)
     #     self.aggregator = TreeAggregator(aggregation)
