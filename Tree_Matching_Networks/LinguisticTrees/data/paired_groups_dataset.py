@@ -79,7 +79,8 @@ class PairedGroupsDatasetBase(IterableDataset):
                  min_trees_per_group: int = 1,
                  filter_labels: Optional[Set[float]] = None,
                  label_map: Optional[Dict] = {},
-                 label_norm: Optional[Dict[str, Tuple[float, float]]] = None):
+                 label_norm: Optional[Dict[str, Tuple[float, float]]] = None,
+                 **kwargs):
         """
         Initialize the base dataset.
         

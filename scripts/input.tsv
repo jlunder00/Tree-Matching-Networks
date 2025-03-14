@@ -1,1 +1,4 @@
-The quick brown fox jumped over the lazy dog.	The dog is lying down.	1
+A soccer game with multiple males playing.	Some men are playing a sport.	entailment
+A black race car starts up in front of a crows of people.	A man is driving down a lonely road.	contradiction
+A smiling costumed woman is holding an umbrella.	A happy woman in a fairy costume holds an umbrella	neutral
+The quick brown fox jumped over the lazy dog.	The dog is lazy.	entailment

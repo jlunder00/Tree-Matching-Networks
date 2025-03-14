@@ -105,9 +105,12 @@ def train_aggregative(args):
     #     config=config
     # )
     task_type = config['model']['task_type']
+    dataset_type = config['data']['dataset_type']
     label_map = {'-': 1.0, 'entailment':1.0, 'neutral':0.0, 'contradiction':-1.0, '0': 0.0, '0.0':0.0, 0:0.0, '1':1.0, '1.0':1.0, 1:1.0}
-    if task_type == 'similarity':
+    if task_type == 'similarity' or dataset_type == 'semeval':
         label_norm = {'old':(0, 5), 'new':(-1, 1)}
+    elif task_type == 'binary' or dataset_type == 'patentmatch_balanced':
+        label_norm = {'old': (0, 1), 'new': (-1, 1)}
     else:
         label_norm = None
     train_dataset = create_paired_groups_dataset(
