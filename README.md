@@ -17,7 +17,7 @@ This project extends Graph Matching Networks to operate on linguistic trees and 
 ```
 .
 ├── GMN/                   # Original Graph Matching Networks code
-├── LinguisticTrees/       # Our tree adaptations and training code
+├── LinguisticTrees/       # My tree adaptations and training code
 │   ├── configs/           # Configuration files
 │   ├── data/              # Data loading and processing
 │   ├── models/            # Model architecture
@@ -121,7 +121,7 @@ python -m Tree_Matching_Networks.LinguisticTrees.experiments.eval_aggregated \
 
 ## Model Architecture
 
-Our approach adapts Graph Matching Networks to work with linguistic trees:
+My approach adapts Graph Matching Networks to work with linguistic trees:
 
 1. **Text Processing**: Convert sentences to dependency trees using SpaCy/DiaParser
 2. **Feature Extraction**: Embed words and dependency relations
