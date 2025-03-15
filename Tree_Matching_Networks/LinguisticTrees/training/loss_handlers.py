@@ -1,3 +1,5 @@
+# Authored by: Jason Lunder, EWUID: 01032294, Github: https://github.com/jlunder00/
+
 from .loss import SimilarityLoss, EntailmentLoss, InfoNCELoss, TextLevelBinaryLoss, TextLevelSimilarityLoss, TextLevelEntailmentLoss, TextLevelContrastiveLoss 
 
 LOSS_HANDLERS = {

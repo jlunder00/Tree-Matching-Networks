@@ -1,3 +1,5 @@
+# Authored by: Jason Lunder, EWUID: 01032294, Github: https://github.com/jlunder00/
+
 #configs/default_tree_config.py 
 from ...GMN.configure import get_default_config
 import yaml

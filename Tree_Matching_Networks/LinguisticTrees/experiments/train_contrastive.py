@@ -1,3 +1,5 @@
+# Authored by: Jason Lunder, EWUID: 01032294, Github: https://github.com/jlunder00/
+
 # experiments/train_contrastive.py
 import torch.multiprocessing as mp
 import wandb

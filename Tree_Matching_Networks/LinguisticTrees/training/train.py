@@ -1,3 +1,5 @@
+# Authored by: Jason Lunder, EWUID: 01032294, Github: https://github.com/jlunder00/
+
 # training/train.py
 from ..data.data_utils import GraphData
 from ..data.batch_utils import BatchInfo

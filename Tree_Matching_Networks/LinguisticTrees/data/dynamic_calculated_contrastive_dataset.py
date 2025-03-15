@@ -1,3 +1,5 @@
+# Authored by: Jason Lunder, EWUID: 01032294, Github: https://github.com/jlunder00/
+
 # data/dynamic_calculated_contrastive_dataset.py
 import numpy as np
 import json

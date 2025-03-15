@@ -1,3 +1,5 @@
+# Authored by: Jason Lunder, EWUID: 01032294, Github: https://github.com/jlunder00/
+
 #models/tree_matching.py
 import math
 from ...GMN.graphmatchingnetwork import GraphMatchingNet

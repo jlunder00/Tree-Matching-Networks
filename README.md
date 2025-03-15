@@ -1,3 +1,4 @@
+[//]: # (Authored in part by: Jason Lunder, Borrowed existing readme from forked repository, added my description to differentiate from base repository)
 # Tree Matching Networks
 [![LICENSE](https://img.shields.io/badge/license-MIT-green)](https://github.com/Lin-Yijie/Graph-Matching-Networks/blob/main/LICENSE)
 ![last commit](https://img.shields.io/github/last-commit/Lin-Yijie/Graph-Matching-Networks)

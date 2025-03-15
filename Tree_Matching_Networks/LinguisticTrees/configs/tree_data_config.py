@@ -1,3 +1,5 @@
+# Authored by: Jason Lunder, EWUID: 01032294, Github: https://github.com/jlunder00/
+
 #configs/tree_data_config.py
 from dataclasses import dataclass
 from typing import Literal, List
