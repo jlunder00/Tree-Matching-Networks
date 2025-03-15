@@ -23,8 +23,7 @@ This project extends Graph Matching Networks to operate on linguistic trees and 
 │   ├── models/            # Model architecture
 │   ├── training/          # Training and evaluation code
 │   └── experiments/       # Training and evaluation scripts
-├── scripts/               # Demo and utility scripts
-└── data/                  # Data directory (see TMN_DataGen)
+└── scripts/               # Demo and utility scripts
 ```
 
 ## Installation
