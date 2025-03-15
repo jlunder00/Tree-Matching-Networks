@@ -185,3 +185,6 @@ Tree_Matching_Networks/LinguisticTrees/experiments/info_nce_*/
 Tree_Matching_Networks/LinguisticTrees/experiments/info_nce_*/*
 Tree_Matching_Networks/LinguisticTrees/experiments/sweep_config_*
 sweep_config_*
+wandb/*
+Tree_Matching_Networks/LinguisticTrees/experiments/wandb/*
+Tree_Matching_Networks/LinguisticTrees/wandb/*
