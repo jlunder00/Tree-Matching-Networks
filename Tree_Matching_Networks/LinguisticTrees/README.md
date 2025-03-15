@@ -206,7 +206,7 @@ The model shows higher accuracy for entailment and contradiction classes, with m
 | Model | Parameters | SNLI Accuracy |
 |-------|------------|---------------|
 | EFL + RoBERTa-large from Wang et al., '21 | 355M | ~90% |
-| Our TMN | <20K | ~60% |
+| TMN | <20K | ~60% |
 
 ## Further Work
 
