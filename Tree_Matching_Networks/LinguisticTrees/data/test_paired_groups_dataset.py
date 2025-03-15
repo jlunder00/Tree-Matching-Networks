@@ -9,7 +9,6 @@ import json
 from pathlib import Path
 import torch
 
-# Add the parent directory to the path so we can import our modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data.paired_groups_dataset import (
@@ -39,8 +38,6 @@ def test_non_strict_matching_dataset():
         }
     }
     
-    # Path to your data directory containing paired groups
-    # Adjust this to your actual data path
     data_dir = "/home/jlunder/research/data/snli_1.0/dev"
     
     logger.info(f"Creating dataset from {data_dir}")

@@ -1,5 +1,8 @@
 from sklearn import metrics
-from loss import *
+try:
+    from loss import *
+except ImportError:
+    from .loss import *
 
 
 def exact_hamming_similarity(x, y):

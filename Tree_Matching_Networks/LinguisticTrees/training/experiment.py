@@ -1,5 +1,6 @@
 # Authored by: Jason Lunder, EWUID: 01032294, Github: https://github.com/jlunder00/
 
+#Manages checkpointing and config loading from a checkpoint
 # training/experiment.py
 from pathlib import Path
 import yaml

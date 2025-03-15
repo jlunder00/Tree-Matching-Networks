@@ -1,8 +1,9 @@
-#config
+# Authored by: Jason Lunder, EWUID: 01032294, Github: https://github.com/jlunder00/
 model:
-  task_type: similarity
+  # task_type: similarity
   # task_type: binary
   # task_type: infonce
+  task_type: entailment
   task_loader_type: aggregative
   name: tree_matching
   model_type: matching
@@ -51,7 +52,8 @@ model:
 
 data:
   # dataset_type: patentmatch_balanced
-  dataset_type: semeval
+  # dataset_type: semeval
+  dataset_type: snli
 
   batch_size: 256
   strict_matching: False
@@ -80,7 +82,8 @@ train:
 wandb:
   project: tree-embedding
   # tags: [aggregative, patentmatch_balanced]
-  tags: [aggregative, semeval]
+  # tags: [aggregative, semeval]
+  tags: [aggregative, snli]
   log_interval: 10
   memory_logging: true
 
