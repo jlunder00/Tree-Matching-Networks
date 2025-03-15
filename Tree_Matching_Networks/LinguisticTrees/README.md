@@ -197,7 +197,7 @@ versions of BERT based models are needed to draw more meaningful conclusions abo
 
 ### Confusion Matrix
 
-![Confusion Matrix](placeholder_confusion_matrix.png)
+![Confusion Matrix](confusion_matrix.png)
 
 The model shows higher accuracy for entailment and contradiction classes, with more difficulty on the neutral class.
 
