@@ -1,9 +1,0 @@
-Traceback (most recent call last):
-  File "<frozen runpy>", line 198, in _run_module_as_main
-  File "<frozen runpy>", line 88, in _run_code
-  File "/home/jlunder/research/Tree-Matching-Networks/Tree_Matching_Networks/LinguisticTrees/experiments/test_training.py", line 51, in <module>
-    test_training()
-  File "/home/jlunder/research/Tree-Matching-Networks/Tree_Matching_Networks/LinguisticTrees/experiments/test_training.py", line 25, in test_training
-    dataset = MultiPartitionTreeDataset(config['data']['train_path'], config, num_workers=12)
-              ^^^^^^^^^^^^^^^^^^^^^^^^^
-NameError: name 'MultiPartitionTreeDataset' is not defined
