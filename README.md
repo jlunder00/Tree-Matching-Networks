@@ -48,7 +48,7 @@ Before using the models, you'll need:
 
 1. **SpaCy Model**: For dependency parsing.
    ```bash
-   python -m spacy download en_core_web_trf  # or en_core_web_lg/md/sm
+   python -m spacy download en_core_web_sm # or en_core_web_lg/md/trf
    ```
 
 2. **Word2Vec Vocabulary**: For word boundary correction.
@@ -70,8 +70,12 @@ Try out the model with the demo script:
 ```bash
 python -m Tree_Matching_Networks.scripts.demo \
   --checkpoint /path/to/best_entailment_model_checkpoint/checkpoints/best_model.pt \
-  --input input.tsv
+  --config /path/to/custom/config.yaml  \
+  --input input.tsv \
+  --spacy_model en_core_web_sm
 ```
+Note that occasionally the provided config that comes with a checkpoint may not work in the demo script.    
+Providing a config override to an appropriately configured custom config or one such config from Tree_Matching_Networks/LinguisticTrees/configs/experiment_configs/ can resolve this issue.
 
 See [Demo Instructions](scripts/README.md) for more details.
 
@@ -84,7 +88,7 @@ python -m TMN_DataGen.run process \
   --input_path your_data.jsonl \
   --out_dir processed_data/your_dataset \
   --dataset_type snli \
-  --spacy_model en_core_web_trf
+  --spacy_model en_core_web_sm
 ```
 
 See [TMN_DataGen README](https://github.com/jlunder00/TMN_DataGen/blob/main/README.md) for more details.

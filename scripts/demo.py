@@ -180,6 +180,8 @@ def main():
                         help="Input text pair (comma-separated) or file path containing text pairs")
     parser.add_argument("--config", type=str, default=None,
                         help="Optional config override file")
+    parser.add_argument("--spacy_model", type=str, default=None,
+                        help="optional override to change spacy model used. default is en_core_web_sm")
     args = parser.parse_args()
 
     # 1. Parse input text pairs
@@ -265,6 +267,8 @@ def main():
 
     # 5. Parse sentences into trees using MultiParser.
     vocabs = [set()]  # In practice, vocabs are loaded from a word vector model.
+    if args.spacy_model:
+        d_config.parser['parsers']['spacy']['model_name'] = args.spacy_model
     multi_parser = MultiParser(d_config, pkg_config=pkg_config, vocabs=vocabs, logger=None)
     all_tree_groups = multi_parser.parse_all(sentence_groups, show_progress=False, num_workers=1)
     print("Parsing of sentences into trees complete.")

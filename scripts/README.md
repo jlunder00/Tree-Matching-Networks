@@ -30,14 +30,19 @@ The demo script takes a tsv file containing pairs with optional labels and runs 
 python -m Tree_Matching_Networks.scripts.demo \
   --checkpoint /path/to/checkpoint/best_model.pt \
   --input input.tsv \
-  --config /path/to/config/file.yaml
+  --config /path/to/config/file.yaml \
+  --spacy_model en_core_web_sm
 ```
 
 ### Command-line Arguments
 
 - `--checkpoint`: Path to a trained model checkpoint (required)
 - `--input`: Either a tab-separated text pair or a file path containing pairs (required)
-- `--config`: Optional configuration override file
+- `--config`: Optional configuration override file. 
+- `--spacy_model`: Optional spacy model override to use a different model than en_core_web_sm when generating tree node features.
+Note that occasionally the provided config that comes with a checkpoint may not work in the demo script.    
+Providing a config override to an appropriately configured custom config or one such config from Tree_Matching_Networks/LinguisticTrees/configs/experiment_configs/ can resolve this issue.
+
 
 ### Input Format
 
