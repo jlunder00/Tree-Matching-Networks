@@ -1,4 +1,4 @@
-# Authored by: Jason Lunder, EWUID: 01032294, Github: https://github.com/jlunder00/
+# Authored by: Jason Lunder, Github: https://github.com/jlunder00/
 
 # scripts/shard_partitions.py
 #old script, functionality has been subsumed by TMN_DataGen
