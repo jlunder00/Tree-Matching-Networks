@@ -97,10 +97,9 @@ def train_aggregative(args):
     else:
         # Data config
         data_config = TreeDataConfig(
-            dataset_specs=config.get('data', {}).get('dataset_specs', 
-                                                   [config.get('data', {}).get('dataset_type', 'wikiqs')]),
+            dataset_specs=config.get('data', {}).get('dataset_specs', [config.get('data', {}).get('dataset_type', 'wikiqs')]),
             task_type='',
-            use_sharded_train=True,
+            use_sharded_dev=True,
             use_sharded_validate=True,
             allow_cross_dataset_negatives=config.get('data', {}).get('allow_cross_dataset_negatives', True)
         )
