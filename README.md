@@ -1,4 +1,3 @@
-[//]: # (Authored by: Jason Lunder)
 # Tree Matching Networks for NLI
 
 [![LICENSE](https://img.shields.io/badge/license-MIT-green)](https://github.com/jlunder00/Tree-Matching-Networks/blob/main/LICENSE)

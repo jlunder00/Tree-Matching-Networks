@@ -1,4 +1,3 @@
-#Authored by: Jason Lunder, EWUID: 01032294, Github: https://github.com/jlunder00/
 #setup.py - for formatting as a package
 import os
 from setuptools import setup, find_packages

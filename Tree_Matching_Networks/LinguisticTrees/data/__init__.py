@@ -1,5 +1,3 @@
-# Authored by: Jason Lunder, EWUID: 01032294, Github: https://github.com/jlunder00/
-
 #data/__init__.py
 # from .tree_dataset import TreeMatchingDataset
 from .dynamic_calculated_contrastive_dataset import BatchInfo, DynamicCalculatedContrastiveDataset, get_dynamic_calculated_dataloader

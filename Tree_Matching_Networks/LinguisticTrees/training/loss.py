@@ -1,4 +1,4 @@
-# Authored by: Jason Lunder, EWUID: 01032294, Github: https://github.com/jlunder00/
+# Authored by: Jason Lunder, Github: https://github.com/jlunder00/
 
 #only the TextLevel losses are used, and the InfoNCELoss can be used for pretraining with some modifications.
 #training/loss.py

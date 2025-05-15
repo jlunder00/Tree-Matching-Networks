@@ -1,4 +1,4 @@
-# Authored by: Jason Lunder, EWUID: 01032294, Github: https://github.com/jlunder00/
+# Authored by: Jason Lunder, Github: https://github.com/jlunder00/
 
 # Training script used during pretraining on old data format. should be handled by new training script with new data format (not tested). preserved as is in case it is needed for new round of pretraininig
 # experiments/train_contrastive.py

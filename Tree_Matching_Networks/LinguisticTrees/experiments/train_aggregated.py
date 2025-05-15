@@ -1,4 +1,4 @@
-# Authored by: Jason Lunder, EWUID: 01032294, Github: https://github.com/jlunder00/
+# Authored by: Jason Lunder, Github: https://github.com/jlunder00/
 
 #main training script for newest data format
 # experiments/train_aggregative.py
