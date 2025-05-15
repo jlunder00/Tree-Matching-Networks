@@ -1,7 +1,12 @@
 import collections
-from dataset import GraphEditDistanceDataset, FixedGraphEditDistanceDataset
-from graphembeddingnetwork import GraphEmbeddingNet, GraphEncoder, GraphAggregator
-from graphmatchingnetwork import GraphMatchingNet
+try:
+    from dataset import GraphEditDistanceDataset, FixedGraphEditDistanceDataset
+    from graphembeddingnetwork import GraphEmbeddingNet, GraphEncoder, GraphAggregator
+    from graphmatchingnetwork import GraphMatchingNet
+except ImportError:
+    from .dataset import GraphEditDistanceDataset, FixedGraphEditDistanceDataset
+    from .graphembeddingnetwork import GraphEmbeddingNet, GraphEncoder, GraphAggregator
+    from .graphmatchingnetwork import GraphMatchingNet
 import copy
 import torch
 import random

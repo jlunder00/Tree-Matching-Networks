@@ -1,3 +1,5 @@
+# Authored by: Jason Lunder, Github: https://github.com/jlunder00/
+
 # training/validation.py
 import torch
 import torch.nn.functional as F

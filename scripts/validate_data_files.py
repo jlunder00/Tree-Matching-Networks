@@ -1,4 +1,7 @@
+# Authored by: Jason Lunder, EWUID: 01032294, Github: https://github.com/jlunder00/
+
 # scripts/validate_data_files.py
+# Old script used on old version of data to check validity, not relevant now
 import json
 from pathlib import Path
 import argparse

@@ -1,3 +1,6 @@
+# Authored by: Jason Lunder, Github: https://github.com/jlunder00/
+
+# Training script used during pretraining on old data format. should be handled by new training script with new data format (not tested). preserved as is in case it is needed for new round of pretraininig
 # experiments/train_contrastive.py
 import torch.multiprocessing as mp
 import wandb
@@ -10,7 +13,7 @@ import sys
 try:
     from ..configs.default_tree_config import get_tree_config
     from ..configs.tree_data_config import TreeDataConfig
-    from ..data import GroupedTreeDataset, DynamicCalculatedContrastiveDataset, get_dynamic_calculated_dataloader, create_paired_groups_dataset, get_paired_groups_dataloader
+    from ..data import DynamicCalculatedContrastiveDataset
     from ..models.tree_matching import TreeMatchingNet
     from ..models.tree_embedding import TreeEmbeddingNet
     from ..training.experiment import ExperimentManager
@@ -20,7 +23,7 @@ try:
 except:
     from Tree_Matching_Networks.LinguisticTrees.configs.default_tree_config import get_tree_config
     from Tree_Matching_Networks.LinguisticTrees.configs.tree_data_config import TreeDataConfig
-    from Tree_Matching_Networks.LinguisticTrees.data import GroupedTreeDataset, DynamicCalculatedContrastiveDataset, get_dynamic_calculated_dataloader, create_paired_groups_dataset, get_paired_groups_dataloader
+    from Tree_Matching_Networks.LinguisticTrees.data import DynamicCalculatedContrastiveDataset
     from Tree_Matching_Networks.LinguisticTrees.models.tree_matching import TreeMatchingNet
     from Tree_Matching_Networks.LinguisticTrees.models.tree_embedding import TreeEmbeddingNet
     from Tree_Matching_Networks.LinguisticTrees.training.experiment import ExperimentManager

@@ -1,3 +1,6 @@
+# Authored by: Jason Lunder, Github: https://github.com/jlunder00/
+
+#main training script for newest data format
 # experiments/train_aggregative.py
 import torch.multiprocessing as mp
 import wandb
@@ -11,7 +14,7 @@ import yaml
 try:
     from ..configs.default_tree_config import get_tree_config
     from ..configs.tree_data_config import TreeDataConfig
-    from ..data import GroupedTreeDataset, DynamicCalculatedContrastiveDataset, get_dynamic_calculated_dataloader, create_paired_groups_dataset, get_paired_groups_dataloader
+    from ..data import create_paired_groups_dataset
     from ..models.tree_matching import TreeMatchingNet
     from ..models.tree_embedding import TreeEmbeddingNet
     from ..training.experiment import ExperimentManager
@@ -21,7 +24,7 @@ try:
 except:
     from Tree_Matching_Networks.LinguisticTrees.configs.default_tree_config import get_tree_config
     from Tree_Matching_Networks.LinguisticTrees.configs.tree_data_config import TreeDataConfig
-    from Tree_Matching_Networks.LinguisticTrees.data import GroupedTreeDataset, DynamicCalculatedContrastiveDataset, get_dynamic_calculated_dataloader, create_paired_groups_dataset, get_paired_groups_dataloader
+    from Tree_Matching_Networks.LinguisticTrees.data import create_paired_groups_dataset
     from Tree_Matching_Networks.LinguisticTrees.models.tree_matching import TreeMatchingNet
     from Tree_Matching_Networks.LinguisticTrees.models.tree_embedding import TreeEmbeddingNet
     from Tree_Matching_Networks.LinguisticTrees.training.experiment import ExperimentManager
@@ -80,30 +83,30 @@ def train_aggregative(args):
         # Update experiment tags if in a sweep
         wandb.run.tags = list(set(wandb.run.tags) | set([*config['wandb'].get('tags', [])]))
     
+    if args.data_root:
+        data_config = TreeDataConfig(
+            data_root = args.data_root,
+            dataset_specs=config.get('data', {}).get('dataset_specs', 
+                                                   [config.get('data', {}).get('dataset_type', 'wikiqs')]),
+            task_type='',
+            use_sharded_train=True,
+            use_sharded_validate=True,
+            allow_cross_dataset_negatives=config.get('data', {}).get('allow_cross_dataset_negatives', True)
+        )
 
-    # Data config
-    data_config = TreeDataConfig(
-        dataset_specs=config.get('data', {}).get('dataset_specs', 
-                                               [config.get('data', {}).get('dataset_type', 'wikiqs')]),
-        task_type='',
-        use_sharded_train=True,
-        use_sharded_validate=True,
-        allow_cross_dataset_negatives=config.get('data', {}).get('allow_cross_dataset_negatives', True)
-    )
+    else:
+        # Data config
+        data_config = TreeDataConfig(
+            dataset_specs=config.get('data', {}).get('dataset_specs', 
+                                                   [config.get('data', {}).get('dataset_type', 'wikiqs')]),
+            task_type='',
+            use_sharded_train=True,
+            use_sharded_validate=True,
+            allow_cross_dataset_negatives=config.get('data', {}).get('allow_cross_dataset_negatives', True)
+        )
     
-    # Initialize wandb
     
     logger.info("Creating datasets...")
-    # Adjust paths for your environment
-    # train_dataset = GroupedTreeDataset(
-    #     data_path=data_config.train_path / "shard_000000.json",  # Adjust path as needed
-    #     config=config
-    # )
-    # 
-    # val_dataset = GroupedTreeDataset(
-    #     data_path=data_config.dev_path / "shard_000002.json",  # Adjust path as needed
-    #     config=config
-    # )
     task_type = config['model']['task_type']
     dataset_type = config['data']['dataset_type']
     label_map = {'-': 1.0, 'entailment':1.0, 'neutral':0.0, 'contradiction':-1.0, '0': 0.0, '0.0':0.0, 0:0.0, '1':1.0, '1.0':1.0, 1:1.0}
@@ -226,6 +229,8 @@ if __name__ == '__main__':
     parser.add_argument('--resume_with_epoch', action='store_true',
                         help='Pickup from same epoch number as previous run (meant for resuming crashed runs). If unset, will count epochs from 0 (meant for doing a full training run using the checkpoint)')
     parser.add_argument('--ignore_patience', action='store_true')
+    parser.add_argument('--data_root', type=str, default=None,
+                        help='The root data directory, containing dev, test, and train folders with dataset folders inside')
 
     args = parser.parse_args()
     

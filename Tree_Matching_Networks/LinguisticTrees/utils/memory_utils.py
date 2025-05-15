@@ -1,3 +1,5 @@
+# Authored by: Jason Lunder, Github: https://github.com/jlunder00/
+
 #utils/memory_utils.py
 import psutil
 import os

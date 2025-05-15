@@ -1,3 +1,6 @@
+# Authored by: Jason Lunder, EWUID: 01032294, Github: https://github.com/jlunder00/
+
+#Legacy: used with dynamic calculated contrastive dataset, aspects still relevant in aggregative, could be used, not currently used
 # configs/experiment_configs/contrastive_config.yaml
 model:
   task_type: info_nce

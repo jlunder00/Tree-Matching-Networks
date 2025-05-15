@@ -1,3 +1,7 @@
+# Authored by: Jason Lunder, Github: https://github.com/jlunder00/
+
+#designed to work with non text level groups. needs updates to work with newest data format. used to do grid search on hyperparams during initial pretraining
+
 import wandb
 import torch
 from pathlib import Path

@@ -1,3 +1,7 @@
+# Authored by: Jason Lunder, Github: https://github.com/jlunder00/
+
+#evaluation script for testing model
+
 # experiments/eval_aggregated.py
 import torch
 import yaml
@@ -21,8 +25,6 @@ try:
     from ..data.paired_groups_dataset import create_paired_groups_dataset, get_paired_groups_dataloader
     from ..training.loss_handlers import LOSS_HANDLERS
     from ..data.data_utils import GraphData
-    from ..data.batch_utils import BatchInfo
-    from ..data.paired_groups_dataset import PairedGroupBatchInfo
 except:
     from Tree_Matching_Networks.LinguisticTrees.configs.default_tree_config import get_tree_config
     from Tree_Matching_Networks.LinguisticTrees.configs.tree_data_config import TreeDataConfig
@@ -229,6 +231,8 @@ def main():
                       help="Comma-separated list of tags for WandB")
     parser.add_argument("--config", type=str, default=None)
     parser.add_argument("--override", type=str, default=None)
+    parser.add_argument('--data_root', type=str, default=None,
+                        help='The root data directory, containing dev, test, and train folders with dataset folders inside')
     
     args = parser.parse_args()
     
@@ -266,13 +270,23 @@ def main():
     logger.info(f"Evaluating {task_type} model with {task_loader_type} loader")
     
     # Create data config
-    data_config = TreeDataConfig(
-        dataset_type=config['data']['dataset_type'],
-        task_type=task_type,
-        use_sharded_train=True,
-        use_sharded_validate=False,
-        use_sharded_test=True
-    )
+    if args.data_root:
+        data_config = TreeDataConfig(
+            data_root = args.data_root,
+            dataset_type=config['data']['dataset_type'],
+            task_type=task_type,
+            use_sharded_train=True,
+            use_sharded_validate=False,
+            use_sharded_test=True
+        )
+    else:
+        data_config = TreeDataConfig(
+            dataset_type=config['data']['dataset_type'],
+            task_type=task_type,
+            use_sharded_train=True,
+            use_sharded_validate=False,
+            use_sharded_test=True
+        )
     label_map = {'-': 1.0, 'entailment':1.0, 'neutral':0.0, 'contradiction':-1.0, '0': 0.0, '0.0':0.0, 0:0.0, '1':1.0, '1.0':1.0, 1:1.0}
     if task_type == 'similarity' or dataset_type == 'semeval':
         label_norm = {'old':(0, 5), 'new':(-1, 1)}

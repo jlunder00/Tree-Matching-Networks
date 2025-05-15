@@ -1,3 +1,5 @@
+# Authored by: Jason Lunder, Github: https://github.com/jlunder00/
+
 #training/logger.py
 import wandb
 from typing import Dict, Any

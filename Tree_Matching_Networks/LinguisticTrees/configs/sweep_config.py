@@ -1,3 +1,5 @@
+# Authored by: Jason Lunder, Github: https://github.com/jlunder00/
+
 def get_sweep_config():
     """Generate wandb sweep configuration"""
     return {

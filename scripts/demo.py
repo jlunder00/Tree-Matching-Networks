@@ -1,3 +1,5 @@
+# Authored by: Jason Lunder, EWUID: 01032294, Github: https://github.com/jlunder00/
+
 
 
 #!/usr/bin/env python
@@ -97,41 +99,6 @@ def parse_input(input_arg):
         labels.append(label)
     return pairs, labels
 
-# def parse_input(input_arg):
-#     """
-#     Parse the input provided by the user.
-#     If input_arg is a file path, read each nonempty line.
-#     Otherwise, assume it is a single tab-separated text pair.
-#     Returns a list of (text_a, text_b) tuples and a list of labels.
-#     """
-#     pairs = []
-#     labels = []
-#     sep = "\t"
-#     if os.path.isfile(input_arg):
-#         with open(input_arg, 'r', encoding='utf-8') as f:
-#             for line in f:
-#                 line = line.strip()
-#                 if not line:
-#                     continue
-#                 parts = [p.strip() for p in line.split(sep)]
-#                 if len(parts) < 2:
-#                     continue
-#                 text_a = parts[0]
-#                 text_b = parts[1]
-#                 label = float(parts[2]) if len(parts) >= 3 else 1.0
-#                 pairs.append((text_a, text_b))
-#                 labels.append(label)
-#     else:
-#         # Single input assumed to be tab-separated
-#         parts = [p.strip() for p in input_arg.split(sep)]
-#         if len(parts) < 2:
-#             raise ValueError("Input must have at least two tab-separated texts.")
-#         text_a = parts[0]
-#         text_b = parts[1]
-#         label = float(parts[2]) if len(parts) >= 3 else 1.0
-#         pairs.append((text_a, text_b))
-#         labels.append(label)
-#     return pairs, labels
 
 def get_feature_config(config) -> Dict:
     """Create feature extractor config."""
@@ -166,6 +133,40 @@ def load_embeddings(tree: Dict, embedding_extractor: FeatureExtractor) -> torch.
     node_features = torch.tensor(tree['node_features'])
     return torch.cat([word_embeddings, node_features], dim=-1)
 
+def make_trees_square(trees_a, trees_b):
+    # Sort both lists in descending order by the number of nodes
+    sorted_a = sorted(trees_a, key=lambda x: len(x['tree']['node_texts']), reverse=True)
+    sorted_b = sorted(trees_b, key=lambda x: len(x['tree']['node_texts']), reverse=True)
+    
+    # Determine the smaller and larger list
+    if len(sorted_a) < len(sorted_b):
+        small, large = sorted_a, sorted_b
+        small_label = 'a'
+    else:
+        small, large = sorted_b, sorted_a
+        small_label = 'b'
+    
+    # Record the original order to drive duplication
+    original_order = small.copy()
+    i = 0
+    # While the small list is still shorter than the large one, duplicate items.
+    while len(small) < len(large):
+        # Cycle through the original order
+        element_to_duplicate = original_order[i % len(original_order)]
+        # Find its first occurrence in the current small list
+        idx = small.index(element_to_duplicate)
+        # Insert a duplicate right after the found element (shifting subsequent elements right)
+        small.insert(idx + 1, element_to_duplicate)
+        i += 1
+
+    # Return the two lists with equal length.
+    # We return the list corresponding to 'a' first, so we swap back if needed.
+    if small_label == 'a':
+        return small, large
+    else:
+        return large, small
+
+
 
 # --- Main pipeline ---
 
@@ -179,6 +180,8 @@ def main():
                         help="Input text pair (comma-separated) or file path containing text pairs")
     parser.add_argument("--config", type=str, default=None,
                         help="Optional config override file")
+    parser.add_argument("--spacy_model", type=str, default=None,
+                        help="optional override to change spacy model used. default is en_core_web_sm")
     args = parser.parse_args()
 
     # 1. Parse input text pairs
@@ -195,7 +198,10 @@ def main():
         with open(args.config, 'r') as f:
             base_config = yaml.safe_load(f)
     # Use the default get_tree_config function; task type is 'entailment'
-    config = get_tree_config(task_type='entailment', base_config=base_config, override_config=None)
+    model, model_config, checkpoint_epoch = load_model_from_checkpoint(
+        args.checkpoint, base_config, override_config=None
+    )
+    config = model_config
     import yaml
     from pathlib import Path
     from omegaconf import OmegaConf
@@ -233,10 +239,12 @@ def main():
     grouped_metadata = []
     grouped_sentences = []  # List of tuples: (sentences_from_A, sentences_from_B)
     for i, (text_a, text_b) in enumerate(text_pairs):
-        text_a_clean = preprocessor.preprocess(text_a)
-        text_b_clean = preprocessor.preprocess(text_b)
-        sentences_a = splitter.split(text_a_clean)
-        sentences_b = splitter.split(text_b_clean)
+        sentences_a = splitter.split(text_a)
+        sentences_b = splitter.split(text_b)
+        sentences_a = [preprocessor.preprocess(a) for a in sentences_a]
+        sentences_b = [preprocessor.preprocess(b) for b in sentences_b]
+        text_a_clean = '.'.join(sentences_a)
+        text_b_clean = '.'.join(sentences_b)
         group_id = generate_group_id()
         metadata = {
             "group_id": group_id,
@@ -259,6 +267,8 @@ def main():
 
     # 5. Parse sentences into trees using MultiParser.
     vocabs = [set()]  # In practice, vocabs are loaded from a word vector model.
+    if args.spacy_model:
+        d_config.parser['parsers']['spacy']['model_name'] = args.spacy_model
     multi_parser = MultiParser(d_config, pkg_config=pkg_config, vocabs=vocabs, logger=None)
     all_tree_groups = multi_parser.parse_all(sentence_groups, show_progress=False, num_workers=1)
     print("Parsing of sentences into trees complete.")
@@ -318,17 +328,20 @@ def main():
                 'tree_idx': tree_idx,
                 'text': tree.get('text', ''),
             })
-            trees_b = []
-            for tree_idx, tree in enumerate(group.get('trees_b', [])):
-                tree = dict(tree)
-                tree['node_features'] = load_embeddings(tree, embedding_extractor)
-                trees_b.append({
-                    'tree': tree,
-                    'group_id': group_id,
-                    'group_idx': group_idx,
-                    'tree_idx': tree_idx,
-                    'text': tree.get('text', ''),
-                })
+        trees_b = []
+        for tree_idx, tree in enumerate(group.get('trees_b', [])):
+            tree = dict(tree)
+            tree['node_features'] = load_embeddings(tree, embedding_extractor)
+            trees_b.append({
+                'tree': tree,
+                'group_id': group_id,
+                'group_idx': group_idx,
+                'tree_idx': tree_idx,
+                'text': tree.get('text', ''),
+            })
+
+        if len(trees_b) != len(trees_a):
+            trees_a, trees_b = make_trees_square(trees_a, trees_b)
         buffer_groups.append({
             'group_id': group_id,
             'group_idx': group_idx,
@@ -336,6 +349,7 @@ def main():
             'trees_a': trees_a,
             'trees_b': trees_b
         })
+
     
     # 8. Create a dummy PairedGroupBatchInfo object.
     # Here we extract for each group the original text and the trees converted to graph data.
@@ -385,9 +399,6 @@ def main():
     )
 
     # 11. Load the entailment model from the checkpoint.
-    model, model_config, checkpoint_epoch = load_model_from_checkpoint(
-        args.checkpoint, base_config, override_config=None
-    )
     model.eval()
     device = torch.device(model_config['device'])
     model = model.to(device)

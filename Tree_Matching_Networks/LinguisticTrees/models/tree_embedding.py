@@ -1,9 +1,11 @@
+# Authored by: Jason Lunder, Github: https://github.com/jlunder00/
+
 #models/tree_embedding.py
 import torch
 import torch.nn as nn
 from ...GMN.graphembeddingnetwork import GraphEncoder, GraphEmbeddingNet, GraphAggregator
 
-from .tree_encoder import TreeEncoder, TreeEncoderlg
+from .tree_encoder import TreeEncoder
 
 class TreeEmbeddingNet(GraphEmbeddingNet):
     def __init__(self, config):

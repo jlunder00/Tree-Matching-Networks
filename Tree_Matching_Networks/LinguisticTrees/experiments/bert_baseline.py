@@ -1,3 +1,7 @@
+# Authored by: Jason Lunder, Github: https://github.com/jlunder00/
+
+#Legacy: not updated to handle paired group datasets. will be updated in future for comparison with small versions of bert style models
+
 import torch
 from transformers import AutoTokenizer, AutoModel
 from pathlib import Path

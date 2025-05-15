@@ -1,3 +1,5 @@
+# Authored by: Jason Lunder, Github: https://github.com/jlunder00/
+
 #training/metrics.py
 import torch
 from sklearn.metrics import precision_recall_fscore_support

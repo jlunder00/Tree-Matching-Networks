@@ -1,4 +1,7 @@
+# Authored by: Jason Lunder, EWUID: 01032294, Github: https://github.com/jlunder00/
+
 # scripts/preprocess_data.py (renamed from count_pairs_per_file.py)
+# old script, functionality has been subsumed by TMN_DataGen
 import json
 from pathlib import Path
 import argparse

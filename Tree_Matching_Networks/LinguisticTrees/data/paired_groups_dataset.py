@@ -1,3 +1,5 @@
+# Authored by: Jason Lunder, Github: https://github.com/jlunder00/
+
 # data/paired_groups_dataset.py
 import numpy as np
 import json

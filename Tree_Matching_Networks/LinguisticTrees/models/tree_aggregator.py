@@ -1,3 +1,5 @@
+# Authored by: Jason Lunder, Github: https://github.com/jlunder00/
+
 # model/tree_aggregator.py
 import torch
 import torch.nn as nn

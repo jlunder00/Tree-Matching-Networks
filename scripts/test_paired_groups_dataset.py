@@ -1,4 +1,7 @@
+# Authored by: Jason Lunder, EWUID: 01032294, Github: https://github.com/jlunder00/
+
 # test_paired_groups_dataset.py
+# Test the new paired groups dataset/loader
 
 import logging
 import os
@@ -6,8 +9,6 @@ import sys
 import json
 from pathlib import Path
 import torch
-
-# Add the parent directory to the path so we can import our modules
 
 from Tree_Matching_Networks.LinguisticTrees.data.paired_groups_dataset import (
     create_paired_groups_dataset,
@@ -37,8 +38,7 @@ def test_non_strict_matching_dataset():
         }
     }
     
-    # Path to your data directory containing paired groups
-    # Adjust this to your actual data path
+    # Path to data directory containing paired groups
     data_dir = "/home/jlunder/research/data/semeval/sharded/dev/semeval_converted_trf_sharded/"
     
     logger.info(f"Creating dataset from {data_dir}")

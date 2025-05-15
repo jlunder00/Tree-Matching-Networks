@@ -1,4 +1,4 @@
-#setup.py
+#setup.py - for formatting as a package
 import os
 from setuptools import setup, find_packages
 
@@ -10,9 +10,9 @@ with open(os.path.dirname(__file__) + "/requirements.txt", "r") as R:
 
 setup(
     name="Tree_Matching_Networks",
-    version='0.3.0',
-    description="Graph Matching Network implementation and Applications",
-    author="toast",
+    version='1.0.0',
+    description="Tree Matching Networks implementation and Applications",
+    author="Jason Lunder",
     packages=find_packages(),
     install_requires=requirements,
     zip_safe=False,
