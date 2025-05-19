@@ -18,7 +18,78 @@ from .loss_handlers import LOSS_HANDLERS as loss_handlers
 logger = logging.getLogger(__name__)
 
 
-def train_step_infonce(model, graphs: GraphData, batch_info: BatchInfo,
+def train_step_bert(model, batch_encoding, batch_info, optimizer, loss_fn, config):
+    """Training step for BERT model using tokenized inputs"""
+    device = config['device']
+    
+    try:
+        # Move batch encoding to device
+        batch_encoding = {k: v.to(device, non_blocking=True) for k, v in batch_encoding.items()}
+        
+        # Forward pass through BERT
+        # Note: BERT takes single sentences and produces single embeddings
+        # Unlike tree_matching which takes pairs and produces pairs
+        embeddings = model(**batch_encoding)
+        
+        # The embeddings are now in the same format expected by your loss functions
+        # [batch_size, hidden_dim] with the indices corresponding to batch_info
+        loss, predictions, metrics = loss_fn(embeddings, batch_info)
+        
+        # Rest of function remains the same
+        loss = loss / config['train']['gradient_accumulation_steps']
+        loss.backward()
+       
+        predictions = predictions.cpu()
+        if config['train'].get('aggressive_cleanup', False):
+            torch.cuda.empty_cache()
+
+        return loss.item() * config['train']['gradient_accumulation_steps'], predictions, metrics
+        
+    except RuntimeError as e:
+        if "out of memory" in str(e):
+            logger.error("OOM during BERT training step")
+            torch.cuda.empty_cache()
+            MemoryMonitor.clear_memory()
+            raise
+        else:
+            raise
+
+def train_step_bert_infonce(model, batch_encoding, batch_info, optimizer, loss_fn, config):
+    """Training step for BERT model using tokenized inputs"""
+    device = config['device']
+    
+    try:
+        # Move batch encoding to device
+        batch_encoding = {k: v.to(device, non_blocking=True) for k, v in batch_encoding.items()}
+        
+        # Forward pass through BERT
+        # Note: BERT takes single sentences and produces single embeddings
+        # Unlike tree_matching which takes pairs and produces pairs
+        embeddings = model(**batch_encoding)
+        
+        # The embeddings are now in the same format expected by your loss functions
+        # [batch_size, hidden_dim] with the indices corresponding to batch_info
+        loss, _, metrics = loss_fn(embeddings, batch_info)
+        
+        # Rest of function remains the same
+        loss = loss / config['train']['gradient_accumulation_steps']
+        loss.backward()
+       
+        if config['train'].get('aggressive_cleanup', False):
+            torch.cuda.empty_cache()
+
+        return loss.item() * config['train']['gradient_accumulation_steps'], metrics
+        
+    except RuntimeError as e:
+        if "out of memory" in str(e):
+            logger.error("OOM during BERT training step")
+            torch.cuda.empty_cache()
+            MemoryMonitor.clear_memory()
+            raise
+        else:
+            raise
+
+def train_step_infonce(model, graphs: GraphData, batch_info: PairedGroupBatchInfo,
                        optimizer, loss_fn, config: dict):
     """Single training step with InfoNCE loss"""
     device = config['device']
@@ -122,6 +193,7 @@ def train_epoch(model, dataset, optimizer, config, epoch):
     task_type = config['model']['task_type']
     task_loader_type = config['model']['task_loader_type']    
     contrastive_types = ['infonce']
+    config['text_mode'] = dataset.get_text_mode()
     
     loss_loader = 'other' if task_loader_type != 'aggregative' else task_loader_type
     loss_fn = loss_handlers[task_type][loss_loader](
@@ -191,9 +263,14 @@ def train_epoch(model, dataset, optimizer, config, epoch):
         
         try:
             # Training step
-            loss, predictions, batch_metrics = train_step(
-                model, graphs, batch_info, optimizer, loss_fn, config
-            )
+            if config['text_mode']:
+                loss, predictions, batch_metrics = train_step_bert(
+                    model, graphs, batch_info, optimizer, loss_fn, config
+                )
+            else:
+                loss, predictions, batch_metrics = train_step(
+                    model, graphs, batch_info, optimizer, loss_fn, config
+                )
             
             # Optimize on schedule
             if (batch_idx + 1) % config['train']['gradient_accumulation_steps'] == 0:
@@ -323,9 +400,14 @@ def train_epoch_contrastive(model, dataset, optimizer, loss_fn, config, epoch):
         
         try:
             # Training step
-            loss, batch_metrics = train_step_infonce(
-                model, graphs, batch_info, optimizer, loss_fn, config
-            )
+            if config['text_mode']:
+                loss, batch_metrics = train_step_bert_infonce(
+                    model, graphs, batch_info, optimizer, loss_fn, config
+                )
+            else:
+                loss, batch_metrics = train_step_infonce(
+                    model, graphs, batch_info, optimizer, loss_fn, config
+                )
             
             # Optimize on schedule
             if (batch_idx + 1) % config['train']['gradient_accumulation_steps'] == 0:

@@ -5,6 +5,7 @@
 import logging
 import os
 import sys
+from tqdm import tqdm
 import json
 from pathlib import Path
 import torch
@@ -41,6 +42,7 @@ def test_non_strict_matching_dataset():
     data_dir = "/home/jlunder/research/data/snli_1.0/dev"
     
     logger.info(f"Creating dataset from {data_dir}")
+    label_map = {'-': 1.0, 'entailment':1.0, 'neutral':0.0, 'contradiction':-1.0, '0': 0.0, '0.0':0.0, 0:0.0, '1':1.0, '1.0':1.0, 1:1.0}
     
     # Create the dataset
     dataset = create_paired_groups_dataset(
@@ -51,9 +53,10 @@ def test_non_strict_matching_dataset():
         contrastive_mode=False,  # Direct labeled mode
         batch_size=config['data']['batch_size'],
         shuffle_files=True,
-        prefetch_factor=2,
+        prefetch_factor=0,
         max_active_files=2,
         min_trees_per_group=1,
+        label_map = label_map,
         # avg_trees_per_subgroup=5
     )
     
@@ -62,14 +65,22 @@ def test_non_strict_matching_dataset():
     # Create dataloader
     dataloader = get_paired_groups_dataloader(
         dataset,
-        num_workers=config['data']['num_workers'],
-        pin_memory=False  # Set to False for easier debugging
+        num_workers=0,
+        # config['data']['num_workers'],
+        pin_memory=False,  # Set to False for easier debugging
+        persistent_workers=False
     )
+    n_batches = len(dataloader) if hasattr(dataloader, '__len__') else None
     
     logger.info("Starting iteration through dataloader")
+    pbar = tqdm(
+        enumerate(dataloader),
+        total=n_batches,
+        desc=f'Training Epoch 0'
+    )
     
     # Get the first batch
-    for i, (graphs, batch_info) in enumerate(dataloader):
+    for i, (graphs, batch_info) in pbar:
         logger.info(f"Batch {i+1}:")
         logger.info(f"  Number of groups: {len(batch_info.group_indices)}")
         logger.info(f"  Number of trees: {graphs.n_graphs}")

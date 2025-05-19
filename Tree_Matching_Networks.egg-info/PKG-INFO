@@ -1,4 +1,4 @@
-Metadata-Version: 2.2
+Metadata-Version: 2.4
 Name: Tree_Matching_Networks
 Version: 1.0.0
 Summary: Tree Matching Networks implementation and Applications
@@ -26,5 +26,6 @@ Requires-Dist: multiprocess
 Requires-Dist: GitPython
 Requires-Dist: cloudpathlib
 Dynamic: author
+Dynamic: license-file
 Dynamic: requires-dist
 Dynamic: summary

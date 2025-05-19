@@ -103,7 +103,10 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
                  allow_cross_dataset_negatives: bool = True,
                  model_type: str = 'matching',
                  strict_matching: bool = False,
-                 labeled: bool = False):
+                 labeled: bool = False,
+                 text_mode: bool = False,
+                 tokenizer = None,
+                 max_length: int = 512):
         """
         Args:
           data_dir: Directory containing the shard JSON files.
@@ -139,6 +142,10 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         self._batches_provided = 0
         self.allow_cross_dataset_negatives = allow_cross_dataset_negatives
         self.strict_matching = strict_matching
+        
+        self.text_mode = text_mode
+        self.tokenizer = tokenizer
+        self.max_length = max_length
 
         if self.model_type == 'matching' and self.strict_matching:
             #adjusts the batch size to use the entirety of the calculated integer number of groups. Rounding up with ceil = True means
@@ -207,7 +214,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         # # Initialize feature extractor if needed.
         with open(self.data_files[0]) as f:
             data = json.load(f)
-            self.requires_embeddings = data.get('requires_word_embeddings', False)
+            self.requires_embeddings = data.get('requires_word_embeddings', False) and not self.text_mode
             if self.requires_embeddings:
                 feat_config = get_feature_config(config)
                 self.embedding_extractor = FeatureExtractor(feat_config)
@@ -261,7 +268,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
             processed_trees = []
             for tree_idx, tree in enumerate(trees):
                 # Process embeddings if required.
-                if tree.get('node_features_need_word_embs_prepended', False):
+                if tree.get('node_features_need_word_embs_prepended', False) and not self.text_mode:
                     tree = dict(tree)
                     tree['node_features'] = self._load_embeddings(tree)
                 processed_trees.append({
@@ -318,6 +325,22 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         
         # Reset batch count
         self._batches_provided = 0
+
+    def _tokenize_text(self, text: str) -> Dict[str, torch.Tensor]:
+        """Tokenize text using provided tokenizer"""
+        if self.tokenizer is None:
+            raise ValueError("Tokenizer must be provided when text mode enabled")
+
+        encoded = self.tokenizer(
+            text,
+            max_length=self.max_length,
+            padding="max_length",
+            truncation=True,
+            return_tensors="pt"
+        )
+        
+        return {k: v.squeeze(0) for k, v in encoded.items()}
+
     
     def _generate_batch(self) -> Optional[Tuple[GraphData, BatchInfo]]:
         """
@@ -455,54 +478,67 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
             labeled = self.labeled
         )
 
-        if self.model_type == 'embedding': #format as pairs for graph matching model with attention network
-            # Finally, convert the list of trees to GraphData.
-            all_batch_graphs = [convert_tree_to_graph_data([item['tree']]) for item in batch_trees]
-            # graphs = [convert_tree_to_graph_data([item['tree']]) for item in batch_trees] #this would be a graph data object per tree
-        else: #do pairs for cross attention model
-            # For each anchor, we need its tree multiple times (for each pos/neg pair)
-            all_batch_graphs = []
-            all_pair_info = []  # Track which indices form pairs
-            anchor_positive_indexes = {}
-            
-            # Add positive pairs
-            for pair_idx, (tree_idx1, tree_idx2) in enumerate(batch_info.positive_pairs):
-                tree1, tree2 = copy.deepcopy(batch_trees[tree_idx1]['tree']), copy.deepcopy(batch_trees[tree_idx2]['tree'])
-                # We need a deep copy if the same tree appears multiple times
-                all_batch_graphs.append(convert_tree_to_graph_data([tree1, tree2]))
-                # Record these will be paired with graph_idx [2i, 2i+1]
-                all_pair_info.append((pair_idx * 2, pair_idx * 2 + 1, True))  # True = positive pair
-                if tree_idx1 in anchor_positive_indexes.keys():
-                    anchor_positive_indexes[tree_idx1].append(pair_idx)
-                else:
-                    anchor_positive_indexes[tree_idx1] = [pair_idx]
+        if self.text_mode:
+            text_inputs = [self._tokenize_text(tree.get('text', '')) for tree in batch_trees]
+            if text_inputs:
+                batch_encoded = {k: torch.cat([p[k] for p in text_inputs]) for k in text_inputs[0].keys()}
+            else:
+                # Empty batch fallback
+                batch_encoded = {
+                    'input_ids': torch.zeros((0, self.max_length), dtype=torch.long),
+                    'attention_mask': torch.zeros((0, self.max_length), dtype=torch.long),
+                    'token_type_ids': torch.zeros((0, self.max_length), dtype=torch.long)
+                }
+            output = batch_encoded
+        else:
+            if self.model_type == 'embedding': #format as pairs for graph matching model with attention network
+                # Finally, convert the list of trees to GraphData.
+                all_batch_graphs = [convert_tree_to_graph_data([item['tree']]) for item in batch_trees]
+                # graphs = [convert_tree_to_graph_data([item['tree']]) for item in batch_trees] #this would be a graph data object per tree
+            else: #do pairs for cross attention model
+                # For each anchor, we need its tree multiple times (for each pos/neg pair)
+                all_batch_graphs = []
+                all_pair_info = []  # Track which indices form pairs
+                anchor_positive_indexes = {}
                 
-
-            if batch_info.strict_matching:    
-                anchor_negative_indexes = {}
-                # Add negative pairs  
-                for pair_idx, (tree_idx1, tree_idx2) in enumerate(batch_info.negative_pairs):
+                # Add positive pairs
+                for pair_idx, (tree_idx1, tree_idx2) in enumerate(batch_info.positive_pairs):
                     tree1, tree2 = copy.deepcopy(batch_trees[tree_idx1]['tree']), copy.deepcopy(batch_trees[tree_idx2]['tree'])
                     # We need a deep copy if the same tree appears multiple times
                     all_batch_graphs.append(convert_tree_to_graph_data([tree1, tree2]))
                     # Record these will be paired with graph_idx [2i, 2i+1]
-                    all_pair_info.append((pair_idx * 2, pair_idx * 2 + 1, False))  # False = negative pair
-                    if tree_idx1 in anchor_negative_indexes.keys():
-                        anchor_negative_indexes[tree_idx1].append(pair_idx)
+                    all_pair_info.append((pair_idx * 2, pair_idx * 2 + 1, True))  # True = positive pair
+                    if tree_idx1 in anchor_positive_indexes.keys():
+                        anchor_positive_indexes[tree_idx1].append(pair_idx)
                     else:
-                        anchor_negative_indexes[tree_idx1] = [pair_idx]
+                        anchor_positive_indexes[tree_idx1] = [pair_idx]
+                    
 
-                batch_info.anchor_negative_indexes = anchor_negative_indexes
-            # graphs = convert_tree_to_graph_data(all_batch_trees)  # This creates sequential graph_idx
-            
-            # Update batch info with the new indices
-            batch_info.pair_indices = all_pair_info
-            batch_info.anchor_positive_indexes = anchor_positive_indexes
-            
-        # Convert all trees into single GraphData with correct indexing
-        graphs = self.collate_graphs(all_batch_graphs)
+                if batch_info.strict_matching:    
+                    anchor_negative_indexes = {}
+                    # Add negative pairs  
+                    for pair_idx, (tree_idx1, tree_idx2) in enumerate(batch_info.negative_pairs):
+                        tree1, tree2 = copy.deepcopy(batch_trees[tree_idx1]['tree']), copy.deepcopy(batch_trees[tree_idx2]['tree'])
+                        # We need a deep copy if the same tree appears multiple times
+                        all_batch_graphs.append(convert_tree_to_graph_data([tree1, tree2]))
+                        # Record these will be paired with graph_idx [2i, 2i+1]
+                        all_pair_info.append((pair_idx * 2, pair_idx * 2 + 1, False))  # False = negative pair
+                        if tree_idx1 in anchor_negative_indexes.keys():
+                            anchor_negative_indexes[tree_idx1].append(pair_idx)
+                        else:
+                            anchor_negative_indexes[tree_idx1] = [pair_idx]
 
-        return graphs, batch_info
+                    batch_info.anchor_negative_indexes = anchor_negative_indexes
+                # graphs = convert_tree_to_graph_data(all_batch_trees)  # This creates sequential graph_idx
+                
+                # Update batch info with the new indices
+                batch_info.pair_indices = all_pair_info
+                batch_info.anchor_positive_indexes = anchor_positive_indexes
+                
+            # Convert all trees into single GraphData with correct indexing
+            output = self.collate_graphs(all_batch_graphs)
+
+        return output, batch_info
 
     def collate_graphs(self, graphs):
         from_idx = []

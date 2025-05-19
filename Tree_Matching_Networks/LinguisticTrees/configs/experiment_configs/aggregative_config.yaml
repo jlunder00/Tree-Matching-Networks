@@ -9,25 +9,27 @@ model:
   model_type: matching
   node_feature_dim: 804
   edge_feature_dim: 70
-  node_state_dim: 1024
-  edge_state_dim: 256
+  # node_state_dim: 1024
+  # edge_state_dim: 256
+  node_state_dim: 512
+  edge_state_dim: 128
   #both edge and node hidden sizes will have a node_state_dim*2 or node_state_dim*3 layer appended in model definition. x3 or x2 is dependant on embedding vs matching type as is required
   edge_hidden_sizes: 
-    - 512
+    - 256
   node_hidden_sizes: 
-    - 1024
+    - 512
   
-  graph_rep_dim: 1792
+  graph_rep_dim: 768
   #graph_transform_sizes wil have graph_rep_dim appended on it
   graph_transform_sizes: 
-    - 1024
+    - 512
 
   edge_net_init_scale: 0.1
   reverse_dir_param_different: false
   use_reverse_direction: true
   share_prop_params: true
 
-  n_prop_layers: 5
+  n_prop_layers: 1
   temperature: 0.05
   aggregation: attention
 
@@ -55,12 +57,12 @@ data:
   # dataset_type: semeval
   dataset_type: snli
 
-  batch_size: 256
+  batch_size: 16
   strict_matching: False
   min_trees_per_group: 1
-  num_workers_train: 4
-  num_workers_val: 2
-  prefetch_factor: 1
+  num_workers_train: 0
+  num_workers_val: 0
+  prefetch_factor: 0
   max_batches_per_epoch: 1000
   contrastive_mode: True
   allow_negatives: True

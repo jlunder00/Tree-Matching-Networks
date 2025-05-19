@@ -212,6 +212,9 @@ class PairedGroupsDatasetBase(IterableDataset):
         self.file_queue = deque(self.data_files)
         self.active_files = deque(maxlen=self.max_active_files)
 
+    def get_text_mode(self):
+        return self.text_mode
+
     def reset_epoch(self):
         if not self.file_queue:
             self.file_queue = deque(self.data_files)
@@ -843,6 +846,27 @@ class NonStrictDataset(PairedGroupsDatasetBase):
             tree_to_set_map,
             anchor_indices
         )
+
+    def _process_final_data(self, batch_trees, pair_indices):
+        """
+        Process batch data into the format expected by the model.
+        To be overridden by subclasses.
+        """
+        raise NotImplementedError("Subclasses must implement _process_data")
+    
+    def _process_final_text_data(self, batch_trees):
+        """Shared text processing logic"""
+        text_inputs = [self._tokenize_text(tree.get('text', '')) for tree in batch_trees]
+        if text_inputs:
+            batch_encoded = {k: torch.cat([p[k] for p in text_inputs]) for k in text_inputs[0].keys()}
+        else:
+            # Empty batch fallback
+            batch_encoded = {
+                'input_ids': torch.zeros((0, self.max_length), dtype=torch.long),
+                'attention_mask': torch.zeros((0, self.max_length), dtype=torch.long),
+                'token_type_ids': torch.zeros((0, self.max_length), dtype=torch.long)
+            }
+        return batch_encoded
     
     def _prepare_pairs(self, batch_data):
         """
@@ -879,25 +903,26 @@ class NonStrictDataset(PairedGroupsDatasetBase):
         # 3. Prepare pairs (implemented by subclasses)
         pair_indices = self._prepare_pairs(batch_data)
         
-        if self.text_mode:
-            text_inputs = [self._tokenize_text(tree.get('text', '')) for tree in batch_trees]
-            if text_inputs:
-                batch_encoded = {k: torch.cat([p[k] for p in text_inputs]) for k in text_inputs[0].keys()}
-            else:
-                # Empty batch fallback
-                batch_encoded = {
-                    'input_ids': torch.zeros((0, self.max_length), dtype=torch.long),
-                    'attention_mask': torch.zeros((0, self.max_length), dtype=torch.long),
-                    'token_type_ids': torch.zeros((0, self.max_length), dtype=torch.long)
-                }
-            data_output = batch_encoded
-            
-        else:
+        data_output = self._process_final_data(batch_trees, pair_indices)
+        # if self.text_mode:
+        #     text_inputs = [self._tokenize_text(tree.get('text', '')) for tree in batch_trees]
+        #     if text_inputs:
+        #         batch_encoded = {k: torch.cat([p[k] for p in text_inputs]) for k in text_inputs[0].keys()}
+        #     else:
+        #         # Empty batch fallback
+        #         batch_encoded = {
+        #             'input_ids': torch.zeros((0, self.max_length), dtype=torch.long),
+        #             'attention_mask': torch.zeros((0, self.max_length), dtype=torch.long),
+        #             'token_type_ids': torch.zeros((0, self.max_length), dtype=torch.long)
+        #         }
+        #     data_output = batch_encoded
+        #     
+        # else:
 
 
-            # 4. Create GraphData
-            all_trees = [item['tree'] for item in batch_trees]
-            data_output = convert_tree_to_graph_data(all_trees)
+        #     # 4. Create GraphData
+        #     all_trees = [item['tree'] for item in batch_trees]
+        #     data_output = convert_tree_to_graph_data(all_trees)
         
         # 5. Create batch info
         batch_info = PairedGroupBatchInfo(
@@ -973,6 +998,15 @@ class EmbeddingDataset(NonStrictDataset):
                                 pair_indices.append((a_idx, b_idx, 0.0))  # Negative pair
         
         return pair_indices
+
+    def _process_final_data(self, batch_trees, pair_indices):
+        """Process data for embedding model"""
+        if self.text_mode:
+            return self._process_final_text_data(batch_trees)
+        else:
+            # All trees individually for embedding
+            all_trees = [item['tree'] for item in batch_trees]
+            return convert_tree_to_graph_data(all_trees)
 
 
 class MatchingDataset(NonStrictDataset):
@@ -1099,6 +1133,28 @@ class MatchingDataset(NonStrictDataset):
                                 pair_indices.append((a_idx, b_idx, 0.0))  # Negative pair
         
         return pair_indices
+
+
+    def _process_final_data(self, batch_trees, pair_indices):
+        """Process data for matching model"""
+        if self.text_mode:
+            return self._process_final_text_data(batch_trees)
+        else:
+            # Process tree pairs for matching (similar to StrictMatchingDataset)
+            all_graph_data = []
+            processed_pairs = set()
+            
+            for a_idx, b_idx, _ in pair_indices:
+                if (a_idx, b_idx) in processed_pairs:
+                    continue
+                
+                tree_a = batch_trees[a_idx]['tree']
+                tree_b = batch_trees[b_idx]['tree']
+                pair_graphs = convert_tree_to_graph_data([tree_a, tree_b])
+                all_graph_data.append(pair_graphs)
+                processed_pairs.add((a_idx, b_idx))
+                
+            return self._collate_graphs(all_graph_data)
 
 
 def create_paired_groups_dataset(
