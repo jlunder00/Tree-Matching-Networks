@@ -82,6 +82,9 @@ class PairedGroupsDatasetBase(IterableDataset):
                  filter_labels: Optional[Set[float]] = None,
                  label_map: Optional[Dict] = {},
                  label_norm: Optional[Dict[str, Tuple[float, float]]] = None,
+                 text_mode: bool = False,
+                 tokenizer = None,
+                 max_length: int = 512,
                  **kwargs):
         """
         Initialize the base dataset.
@@ -118,6 +121,11 @@ class PairedGroupsDatasetBase(IterableDataset):
         # Calculate batch parameters - will be done in subclasses
         self.target_groups = None  # Set in subclasses
         self.adjusted_batch_size = None  # Set in subclasses
+        self.self_pair = None
+        
+        self.text_mode = text_mode
+        self.tokenizer = tokenizer
+        self.max_length = max_length
         
         # Gather files
         self.data_files = []
@@ -145,7 +153,7 @@ class PairedGroupsDatasetBase(IterableDataset):
         # Load a sample file to check for embedding requirements
         with open(self.data_files[0]) as f:
             data = json.load(f)
-            self.requires_embeddings = data.get('requires_word_embeddings', False)
+            self.requires_embeddings = data.get('requires_word_embeddings', False) and not self.text_mode
             
         if self.requires_embeddings:
             feat_config = self._get_feature_config()
@@ -168,10 +176,19 @@ class PairedGroupsDatasetBase(IterableDataset):
             for count_data in self.file_counts.values():
                 total_groups += count_data.get('n_groups', 0)
                 trees_per_group = count_data.get('trees_per_group', [])
-                trees_b_per_group = count_data.get('trees_b_per_group', [])
+                trees_b_per_group = count_data.get('trees_b_per_group', []) if not self.self_pair else trees_per_group
+                if self.self_pair is None and trees_b_per_group == 0 and trees_per_group > 0:
+                    self.self_pair = True
                 
                 total_trees_a += sum(trees_per_group)
                 total_trees_b += sum(trees_b_per_group)
+            if self.self_pair is None:
+                self.self_pair = False
+
+            if self.self_pair:
+                for file, count_data in self.file_counts.items():
+                    if 'trees_per_group' in count_data:
+                        count_data['trees_b_per_group'] = count_data['trees_per_group']
             
             if total_groups > 0:
                 self.avg_trees_per_subgroup_a = total_trees_a / total_groups
@@ -238,6 +255,38 @@ class PairedGroupsDatasetBase(IterableDataset):
         word_embeddings = torch.stack(embeddings)
         node_features = torch.tensor(tree['node_features'])
         return torch.cat([word_embeddings, node_features], dim=-1)
+
+    def _tokenize_text(self, text: str) -> Dict[str, torch.Tensor]:
+        """Tokenize text using provided tokenizer"""
+        if self.tokenizer is None:
+            raise ValueError("Tokenizer must be provided when text mode enabled")
+
+        encoded = self.tokenizer(
+            text,
+            max_length=self.max_length,
+            padding="max_length",
+            truncation=True,
+            return_tensors="pt"
+        )
+        
+        return {k: v.squeeze(0) for k, v in encoded.items()}
+
+    def _tokenize_pair(self, text_a: str, text_b: str) -> Dict[str, torch.Tensor]:
+        """Tokenize a pair of texts using the provided tokenizer."""
+        if self.tokenizer is None:
+            raise ValueError("Tokenizer must be provided when text_mode is enabled")
+            
+        # Handle tokenization with padding and truncation
+        encoded = self.tokenizer(
+            text_a,
+            text_b,
+            max_length=self.max_length,
+            padding="max_length",
+            truncation=True,
+            return_tensors="pt"
+        )
+        
+        return {k: v.squeeze(0) for k, v in encoded.items()}
         
     def _add_groups_from_file(self, file: Path):
         """Load a file and add its groups to the buffer."""
@@ -283,11 +332,11 @@ class PairedGroupsDatasetBase(IterableDataset):
 
             # Count trees in each subgroup
             trees_a_count = len(group.get('trees', []))
-            trees_b_count = len(group.get('trees_b', []))
+            trees_b_count = len(group.get('trees_b', [])) if not self.self_pair else trees_a_count
 
             # Check if both subgroups have enough trees
-            if (len(group.get('trees', [])) < self.min_trees_per_group or
-                len(group.get('trees_b', [])) < self.min_trees_per_group):
+            if (trees_a_count < self.min_trees_per_group or
+                trees_b_count < self.min_trees_per_group):
                 continue
 
             # Store tree counts for better batch calculation
@@ -315,7 +364,8 @@ class PairedGroupsDatasetBase(IterableDataset):
                 
             # Process trees from set B
             trees_b = []
-            for tree_idx, tree in enumerate(group.get('trees_b', [])):
+            k = 'trees_b' if not self.self_pair else 'trees_a'
+            for tree_idx, tree in enumerate(group.get(k, [])):
                 if tree.get('node_features_need_word_embs_prepended', False) and self.requires_embeddings:
                     tree = dict(tree)
                     tree['node_features'] = self._load_embeddings(tree)
@@ -482,8 +532,10 @@ class StrictMatchingDataset(PairedGroupsDatasetBase):
             
         # Create all pairs
         pairs = []
-        for tree_a in trees_a:
-            for tree_b in trees_b:
+        for i, tree_a in enumerate(trees_a):
+            for j, tree_b in enumerate(trees_b):
+                if self.self_pair and i == j: #same tree, skip
+                    continue
                 pairs.append((tree_a, tree_b))
                 
         return pairs
@@ -571,7 +623,8 @@ class StrictMatchingDataset(PairedGroupsDatasetBase):
             
             # Get trees from both sets
             trees_a = group_info['trees_a']
-            trees_b = group_info['trees_b']
+            k = 'trees_b' if not self.self_pair else 'trees_a'
+            trees_b = group_info[k]
             
             # Create all pairs
             pairs = self._create_all_pairs(trees_a, trees_b)
@@ -609,27 +662,6 @@ class StrictMatchingDataset(PairedGroupsDatasetBase):
             # Remove processed group from buffer
             del self.group_buffers[group_id]
         
-        # Create GraphData
-        all_trees = [item['tree'] for item in batch_trees]
-        
-        # For strict matching, create GraphData for all pairs
-        all_graph_data = []
-        
-        # Track processed pairs to avoid duplicates
-        processed_pairs = set()
-        
-        for i, (a_idx, b_idx, _) in enumerate(pair_indices):
-            if (a_idx, b_idx) in processed_pairs:
-                continue
-            
-            tree_a = batch_trees[a_idx]['tree']
-            tree_b = batch_trees[b_idx]['tree']
-            pair_graphs = convert_tree_to_graph_data([tree_a, tree_b])
-            all_graph_data.append(pair_graphs)
-            processed_pairs.add((a_idx, b_idx))
-            
-        graphs = self._collate_graphs(all_graph_data)
-        
         # Create batch info
         batch_info = PairedGroupBatchInfo(
             group_indices=group_indices,
@@ -644,8 +676,45 @@ class StrictMatchingDataset(PairedGroupsDatasetBase):
             strict_matching=True,
             contrastive_mode=self.contrastive_mode
         )
+
+        # If text_mode is enabled, process texts individually to preserve indexing
+        if self.text_mode:
+            text_inputs = [self._tokenize_text(tree.get('text', '')) for tree in batch_trees]
+            if text_inputs:
+                batch_encoded = {k: torch.cat([p[k] for p in text_inputs]) for k in text_inputs[0].keys()}
+            else:
+                # Empty batch fallback
+                batch_encoded = {
+                    'input_ids': torch.zeros((0, self.max_length), dtype=torch.long),
+                    'attention_mask': torch.zeros((0, self.max_length), dtype=torch.long),
+                    'token_type_ids': torch.zeros((0, self.max_length), dtype=torch.long)
+                }
+            data_output = batch_encoded
+        else:
+            # Create GraphData
+            all_trees = [item['tree'] for item in batch_trees]
+            
+            # For strict matching, create GraphData for all pairs
+            all_graph_data = []
+            
+            # Track processed pairs to avoid duplicates
+            processed_pairs = set()
+            
+            for i, (a_idx, b_idx, _) in enumerate(pair_indices):
+                if (a_idx, b_idx) in processed_pairs:
+                    continue
+                
+                tree_a = batch_trees[a_idx]['tree']
+                tree_b = batch_trees[b_idx]['tree']
+                pair_graphs = convert_tree_to_graph_data([tree_a, tree_b])
+                all_graph_data.append(pair_graphs)
+                processed_pairs.add((a_idx, b_idx))
+                
+            graphs = self._collate_graphs(all_graph_data)
+            data_output = graphs
         
-        return graphs, batch_info
+        
+        return data_output, batch_info
 
 
 class NonStrictDataset(PairedGroupsDatasetBase):
@@ -719,40 +788,6 @@ class NonStrictDataset(PairedGroupsDatasetBase):
                    f"trees out of target {target_count}")
         return selected_groups
 
-    # def _select_groups(self):
-    #     """Select groups for this batch using random choice with skips."""
-    #     selected_groups = []
-    #     tree_count = 0
-    #     skips = 0
-
-    #     # Copy keys to avoid runtime modification issues
-    #     group_keys = list(self.group_buffers.keys())
-
-    #     while skips < self.max_skips and group_keys:
-    #         # Randomly select a group without replacement
-    #         group_id = random.choice(group_keys)
-    #         group_info = self.group_buffers[group_id]
-
-    #         # Calculate potential contribution
-    #         contribution = self._calculate_group_contribution(group_info)
-
-    #         if tree_count + contribution > self.batch_size and selected_groups:
-    #             skips += 1
-    #         else:
-    #             selected_groups.append((group_id, group_info))
-    #             tree_count += contribution
-    #             # Remove selected group from future consideration
-    #             group_keys.remove(group_id)
-    #             del self.group_buffers[group_id]
-
-    #     if not selected_groups and self.group_buffers:
-    #         # If we couldn't find any suitable groups, take the first available
-    #         first_group_id, first_group_info = next(iter(self.group_buffers.items()))
-    #         selected_groups.append((first_group_id, first_group_info))
-    #         del self.group_buffers[first_group_id]
-
-    #     return selected_groups
-
     def _process_trees(self, selected_groups):
         """Process trees from selected groups."""
         batch_trees = []
@@ -783,7 +818,8 @@ class NonStrictDataset(PairedGroupsDatasetBase):
             
             # Process trees from set B
             group_b_indices = []
-            for tree in group_info['trees_b']:
+            k = 'trees_b' if not self.self_pair else 'trees_a'
+            for tree in group_info[k]:
                 tree_idx = len(batch_trees)
                 batch_trees.append(tree)
                 group_b_indices.append(tree_idx)
@@ -843,9 +879,25 @@ class NonStrictDataset(PairedGroupsDatasetBase):
         # 3. Prepare pairs (implemented by subclasses)
         pair_indices = self._prepare_pairs(batch_data)
         
-        # 4. Create GraphData
-        all_trees = [item['tree'] for item in batch_trees]
-        graphs = convert_tree_to_graph_data(all_trees)
+        if self.text_mode:
+            text_inputs = [self._tokenize_text(tree.get('text', '')) for tree in batch_trees]
+            if text_inputs:
+                batch_encoded = {k: torch.cat([p[k] for p in text_inputs]) for k in text_inputs[0].keys()}
+            else:
+                # Empty batch fallback
+                batch_encoded = {
+                    'input_ids': torch.zeros((0, self.max_length), dtype=torch.long),
+                    'attention_mask': torch.zeros((0, self.max_length), dtype=torch.long),
+                    'token_type_ids': torch.zeros((0, self.max_length), dtype=torch.long)
+                }
+            data_output = batch_encoded
+            
+        else:
+
+
+            # 4. Create GraphData
+            all_trees = [item['tree'] for item in batch_trees]
+            data_output = convert_tree_to_graph_data(all_trees)
         
         # 5. Create batch info
         batch_info = PairedGroupBatchInfo(
@@ -862,7 +914,7 @@ class NonStrictDataset(PairedGroupsDatasetBase):
             contrastive_mode=self.contrastive_mode
         )
         
-        return graphs, batch_info
+        return data_output, batch_info
 
 
 class EmbeddingDataset(NonStrictDataset):
@@ -873,7 +925,8 @@ class EmbeddingDataset(NonStrictDataset):
     """
 
     def _calculate_group_contribution(self, batch_info):
-        return len(batch_info['trees_a']) + len(batch_info['trees_b']) #the number of trees provided to the embedder from this batch is the sum of how many trees there are
+        b_key = 'trees_b' if not self.self_pair else 'trees_a'
+        return len(batch_info['trees_a']) + len(batch_info[b_key]) #the number of trees provided to the embedder from this batch is the sum of how many trees there are
     
     def _prepare_pairs(self, batch_data):
         """
@@ -929,7 +982,8 @@ class MatchingDataset(NonStrictDataset):
     """
     
     def _calculate_group_contribution(self, batch_info):
-        n = max(len(batch_info['trees_a']), len(batch_info['trees_b'])) #pairing necessitates an nxn matrix. must find n, n*2 is contribution of a group towards total trees sent to embedder
+        b_key = 'trees_b' if not self.self_pair else 'trees_a'
+        n = max(len(batch_info['trees_a']), len(batch_info[b_key])) #pairing necessitates an nxn matrix. must find n, n*2 is contribution of a group towards total trees sent to embedder
         return 2*n
 
     def _create_minimal_pairs(self, trees_a, trees_b, indices_a, indices_b):
@@ -948,6 +1002,31 @@ class MatchingDataset(NonStrictDataset):
         sorted_b = [(i, len(trees_b[i]['tree'].get('node_features', []))) 
                    for i in indices_b]
         sorted_b.sort(key=lambda x: x[1], reverse=True)
+        if self.self_pair and len(sorted_b) > 1:
+            for i in range(0, len(sorted_b)-1, 2):
+                sorted_b[i], sorted_b[i+1] = sorted_b[i+1], sorted_b[i]
+
+            if len(sorted_b) % 2 == 1 and len(sorted_b) > 2:
+                swap_idx = random.randrange(len(sorted_b) - 1)
+                sorted_b[-1], sorted_b[swap_idx] = sorted_b[swap_idx], sorted_b[-1]
+
+            bl = len(sorted_b)
+            pshifts = [i for i in range(-bl, bl+1) if i % 2 == 0]
+
+            ws = []
+            mp = bl/2
+            for s in pshifts:
+                d = abs(abs(s) - mp)
+                w = 1 / (d+1)
+                ws.append(w)
+
+            total = sum(ws)
+            ws = [wi/total for wi in ws]
+
+            shift = random.choices(pshifts, weights=ws, k=1)[0]
+
+            sorted_b = sorted_b[shift:] + sorted_b[:shift]
+
         
         # Create pairs to cover all trees
         pairs = []
@@ -1024,7 +1103,9 @@ class MatchingDataset(NonStrictDataset):
 
 def create_paired_groups_dataset(
     data_dir, config, model_type='matching', 
-    strict_matching=False, contrastive_mode=False, **kwargs
+    strict_matching=False, contrastive_mode=False,
+    text_mode=False, tokenizer=None, max_length=512,
+    **kwargs
 ):
     """Factory function to create the appropriate dataset type."""
     
@@ -1032,6 +1113,9 @@ def create_paired_groups_dataset(
         'data_dir': data_dir,
         'config': config,
         'contrastive_mode': contrastive_mode,
+        'text_mode': text_mode,
+        'tokenizer': tokenizer,
+        'max_length': max_length,
         **kwargs
     }
     
