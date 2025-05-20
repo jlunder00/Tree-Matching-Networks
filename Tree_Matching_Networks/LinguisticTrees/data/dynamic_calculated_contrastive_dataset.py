@@ -204,19 +204,21 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         # Gather shard files (assume naming like part_*_shard_*.json)
         self.data_files = []
         for data_dir in self.data_dirs:
-
+            json_files = list(data_dir.glob("part_*_shard_*.json"))
+            txt_files = []
             if self.allow_text_files:
-                pattern = "part_*_shard_*[.json|.txt]"
-            else:
-                pattern = "part_*_shard_*.json"
+                txt_files = list(data_dir.glob("part_*_shard_*.txt"))
             files = sorted(
-                [f for f in data_dir.glob(pattern)
+                [f for f in json_files + txt_files
                  if not f.name.endswith('_counts.json')],
-                key=lambda x: (int(x.stem.split('_')[1]), int(x.stem.split('_shard_')[1]))
+                key=lambda x: (int(x.stem.split('_')[1]), int(x.stem.split('_shard_')[1]) if '_shard_' in x.stem else 0)
             )
             if not self.data_files:
-                pattern = "part_*[.json|.txt]" if self.allow_text_files else "part_*.json"
-                self.data_files = sorted(data_dir.glob(pattern))
+                json_files = list(data_dir.glob("part_*.json"))
+                txt_files = []
+                if self.allow_text_files:
+                    txt_files = list(data_dir.glob("part_*.txt"))
+                self.data_files = sorted(json_files + txt_files)
             self.data_files.extend(files)
             
         if self.shuffle_files:
@@ -255,6 +257,9 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         self.file_queue = deque(self.data_files)
         self.active_files = deque(maxlen=self.max_active_files)
     
+    def get_text_mode(self):
+        return self.text_mode
+
     @dataloader_handler(".json")
     def parse_json(self, file):
         with open(file) as f:

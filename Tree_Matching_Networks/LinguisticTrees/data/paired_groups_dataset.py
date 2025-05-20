@@ -10,7 +10,9 @@ import logging
 from collections import defaultdict, deque
 from pathlib import Path
 from dataclasses import dataclass
-from typing import List, Tuple, Dict, Optional, Set, Union, Any
+from typing import List, Tuple, Dict, Optional, Set, Union, Any, Callable
+import uuid
+from functools import wraps
 
 import torch
 from torch.utils.data import IterableDataset, DataLoader, get_worker_info
@@ -22,6 +24,18 @@ except ImportError:
     from data_utils import convert_tree_to_graph_data, GraphData, normalize
 
 logger = logging.getLogger(__name__)
+
+def dataloader_handler(key: str):
+    def decorator(func: Callable):
+        @wraps(func)
+        def wrapper(self, *args, **kwargs):
+            return func(self, *args, **kwargs)
+
+        wrapper.dataloader_handler = True
+        wrapper.handler_key = key
+        return wrapper
+
+    return decorator
 
 @dataclass
 class PairedGroupBatchInfo:
@@ -85,6 +99,7 @@ class PairedGroupsDatasetBase(IterableDataset):
                  text_mode: bool = False,
                  tokenizer = None,
                  max_length: int = 512,
+                 allow_text_files: bool = False,
                  **kwargs):
         """
         Initialize the base dataset.
@@ -100,6 +115,12 @@ class PairedGroupsDatasetBase(IterableDataset):
             min_trees_per_group: Minimum number of trees required per subgroup
             filter_labels: Set of labels to keep (filter out others)
         """
+        
+        self._dataloader_handlers = {}
+        for name in dir(self):
+            method = getattr(self, name)
+            if getattr(method, "dataloader_handler", False):
+                self._dataloader_handlers[method.handler_key] = method
         # Convert single directory to list
         if isinstance(data_dir, str):
             self.data_dirs = [Path(data_dir)]
@@ -123,22 +144,28 @@ class PairedGroupsDatasetBase(IterableDataset):
         self.adjusted_batch_size = None  # Set in subclasses
         self.self_pair = None
         
+        self.allow_text_files = allow_text_files
         self.text_mode = text_mode
         self.tokenizer = tokenizer
         self.max_length = max_length
+        if self.allow_text_files and not self.text_mode:
+            logger.warning("text mode not activated when text files are allowed. Forcing text mode in dataloader")
+            self.text_mode = True
         
         # Gather files
         self.data_files = []
         for data_dir in self.data_dirs:
+            all_files = list(data_dir.glob("part_*_shard_*.json")) + [] if not self.allow_text_files else list(data_dir.glob("part_*_shard_*.txt"))
             files = sorted(
-                [f for f in data_dir.glob("part_*_shard_*.json") 
+                [f for f in all_files 
                  if not f.name.endswith('_counts.json')],
                 key=lambda x: (int(x.stem.split('_')[1]), 
                              int(x.stem.split('_shard_')[1]))
             )
             if not files:
+                all_files = list(data_dir.glob("part_*.json")) + [] if not self.allow_text_files else list(data_dir.glob("part_*.txt"))
                 files = sorted(
-                    [f for f in data_dir.glob("part_*.json")
+                    [f for f in all_files
                      if not f.name.endswith('_counts.json')],
                     key=lambda x: int(x.stem.split('_')[1])
                 )
@@ -151,9 +178,8 @@ class PairedGroupsDatasetBase(IterableDataset):
             random.shuffle(self.data_files)
             
         # Load a sample file to check for embedding requirements
-        with open(self.data_files[0]) as f:
-            data = json.load(f)
-            self.requires_embeddings = data.get('requires_word_embeddings', False) and not self.text_mode
+        data = self._dataloader_handlers[file.suffix](self.data_files[0])
+        self.requires_embeddings = data.get('requires_word_embeddings', False) and not self.text_mode
             
         if self.requires_embeddings:
             feat_config = self._get_feature_config()
@@ -211,6 +237,46 @@ class PairedGroupsDatasetBase(IterableDataset):
         # Queue of files to process
         self.file_queue = deque(self.data_files)
         self.active_files = deque(maxlen=self.max_active_files)
+
+    @dataloader_handler(".json")
+    def parse_json(self, file):
+        with open(file) as f:
+            data = json.load(f)
+        return data
+
+    @dataloader_handler(".txt")
+    def parse_wikiqs_file(self, file):
+        data = []
+        with open(file) as f:
+            for i, line in enumerate(f):
+                trees = []
+                line = line.strip()
+                if not line:
+                    continue
+                questions = [
+                    q.strip()[2:] # Remove "q:" prefix
+                    for q in line.strip().split('\t')
+                    if q.startswith('q:') or q.startswith('a:')
+                ]
+                if len(questions) < 2:
+                    continue
+                rejoined_line = ' '.join(questions)
+
+                trees = [{'text': t.strip()} for t in questions]
+                data.append({
+                    'group_id': str(uuid.uuid4()),
+                    'trees': trees,
+                    'trees_b': trees,
+                    'text': rejoined_line.strip(),
+                    'text_b': rejoined_line.strip(),
+                })
+        return {
+            "groups": data,
+            "version": "1.0",
+            "requires_word_embeddings": False,
+            "format": "infonce-text"
+        }
+
 
     def get_text_mode(self):
         return self.text_mode
@@ -294,8 +360,7 @@ class PairedGroupsDatasetBase(IterableDataset):
     def _add_groups_from_file(self, file: Path):
         """Load a file and add its groups to the buffer."""
         try:
-            with open(file) as f:
-                data = json.load(f)
+            data = self._dataloader_handlers[file.suffix](file)
         except Exception as e:
             logger.error(f"Error loading file {file}: {e}")
             return
