@@ -11,8 +11,10 @@ import logging
 from collections import defaultdict, deque
 from pathlib import Path
 from dataclasses import dataclass
-from typing import List, Tuple, Dict, Optional
+from typing import List, Tuple, Dict, Optional, Callable
 import copy
+import uuid
+from functools import wraps
 
 import torch
 from torch.utils.data import IterableDataset, DataLoader, get_worker_info
@@ -42,6 +44,21 @@ def get_feature_config(config: Dict) -> Dict:
         },
         'verbose': config.get('verbose', 'normal')
     }
+
+
+def dataloader_handler(key: str):
+    def decorator(func: Callable):
+        @wraps(func)
+        def wrapper(self, *args, **kwargs):
+            return func(self, *args, **kwargs)
+
+        wrapper.dataloader_handler = True
+        wrapper.handler_key = key
+        return wrapper
+
+    return decorator
+                
+            
 
 
 @dataclass
@@ -104,6 +121,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
                  model_type: str = 'matching',
                  strict_matching: bool = False,
                  labeled: bool = False,
+                 allow_text_files = False,
                  text_mode: bool = False,
                  tokenizer = None,
                  max_length: int = 512):
@@ -120,6 +138,13 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
           allow_cross_dataset_negatives: Allow negatives from other datasets.
           model_type: 'matching' or 'embedding'
         """
+
+        self._dataloader_handlers = {}
+        for name in dir(self):
+            method = getattr(self, name)
+            if getattr(method, "dataloader_handler", False):
+                self._dataloader_handlers[method.handler_key] = method
+
         # Convert single directory to list
         if isinstance(data_dir, str):
             self.data_dirs = [Path(data_dir)]
@@ -143,6 +168,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         self.allow_cross_dataset_negatives = allow_cross_dataset_negatives
         self.strict_matching = strict_matching
         
+        self.allow_text_files = allow_text_files
         self.text_mode = text_mode
         self.tokenizer = tokenizer
         self.max_length = max_length
@@ -178,13 +204,19 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         # Gather shard files (assume naming like part_*_shard_*.json)
         self.data_files = []
         for data_dir in self.data_dirs:
+
+            if self.allow_text_files:
+                pattern = "part_*_shard_*[.json|.txt]"
+            else:
+                pattern = "part_*_shard_*.json"
             files = sorted(
-                [f for f in data_dir.glob("part_*_shard_*.json")
+                [f for f in data_dir.glob(pattern)
                  if not f.name.endswith('_counts.json')],
                 key=lambda x: (int(x.stem.split('_')[1]), int(x.stem.split('_shard_')[1]))
             )
             if not self.data_files:
-                self.data_files = sorted(data_dir.glob("part_*.json"))
+                pattern = "part_*[.json|.txt]" if self.allow_text_files else "part_*.json"
+                self.data_files = sorted(data_dir.glob(pattern))
             self.data_files.extend(files)
             
         if self.shuffle_files:
@@ -204,29 +236,63 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
                 with open(count_file) as f:
                     self.file_counts.append(json.load(f))
             else:
-                with open(file) as f:
-                    data = json.load(f)
-                    self.file_counts.append({
-                        'n_groups': len(data.get('groups', [])),
-                        'trees_per_group': [len(g.get('trees', [])) for g in data.get('groups', [])]
-                    })
+                data = self._dataloader_handlers[file.suffix](file)
+                self.file_counts.append({
+                    'n_groups': len(data.get('groups', [])),
+                    'trees_per_group': [len(g.get('trees', [])) for g in data.get('groups', [])]
+                })
                     
         # # Initialize feature extractor if needed.
-        with open(self.data_files[0]) as f:
-            data = json.load(f)
-            self.requires_embeddings = data.get('requires_word_embeddings', False) and not self.text_mode
-            if self.requires_embeddings:
-                feat_config = get_feature_config(config)
-                self.embedding_extractor = FeatureExtractor(feat_config)
+        data = self._dataloader_handlers[file.suffix](self.data_files[0])
+        self.requires_embeddings = data.get('requires_word_embeddings', False) and not self.text_mode
+        if self.requires_embeddings:
+            feat_config = get_feature_config(config)
+            self.embedding_extractor = FeatureExtractor(feat_config)
         
         # A buffer mapping group_id to a dict { 'group_idx': int, 'trees': [tree_item, ...] }
         self.group_buffers: Dict[str, Dict] = {}
         # A deque of files not yet processed.
         self.file_queue = deque(self.data_files)
         self.active_files = deque(maxlen=self.max_active_files)
+    
+    @dataloader_handler(".json")
+    def parse_json(self, file):
+        with open(file) as f:
+            data = json.load(f)
+        return data
 
-        
-        
+    @dataloader_handler(".txt")
+    def parse_wikiqs_file(self, file):
+        data = []
+        with open(file) as f:
+            for i, line in enumerate(f):
+                trees = []
+                line = line.strip()
+                if not line:
+                    continue
+                questions = [
+                    q.strip()[2:] # Remove "q:" prefix
+                    for q in line.strip().split('\t')
+                    if q.startswith('q:') or q.startswith('a:')
+                ]
+                if len(questions) < 2:
+                    continue
+                rejoined_line = ' '.join(questions)
+
+                trees = [{'text': t.strip()} for t in questions]
+                data.append({
+                    'group_id': str(uuid.uuid4()),
+                    'trees': trees,
+                    'trees_b': trees,
+                    'text': rejoined_line.strip(),
+                    'text_b': rejoined_line.strip(),
+                })
+        return {
+            "groups": data,
+            "version": "1.0",
+            "requires_word_embeddings": False,
+            "format": "infonce-text"
+        }
     
     def _load_embeddings(self, tree: Dict) -> torch.Tensor:
         """Load or generate embeddings for a tree if required."""
@@ -250,8 +316,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
     def _add_groups_from_file(self, file: Path):
         """Load a file and add its groups to the buffer."""
         try:
-            with open(file) as f:
-                data = json.load(f)
+            data = self._dataloader_handlers[file.suffix](file)
         except Exception as e:
             logger.error(f"Error loading file {file}: {e}")
             return
