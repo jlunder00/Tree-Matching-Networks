@@ -432,10 +432,10 @@ def train_epoch_contrastive(model, dataset, optimizer, loss_fn, config, epoch):
                 'time': f'{batch_time:.3f}s',
                 'pos_sim': f"{batch_metrics['pos_similarity']:.4f}",
                 'neg_sim': f"{batch_metrics['neg_similarity']:.4f}",
-                'pos_dist': f"{batch_metrics['pos_distance']:.4f}",
-                'neg_dist': f"{batch_metrics['neg_distance']:.4f}",
-                'pos_mid': f"{batch_metrics['pos_midpoint']:.4f}",
-                'neg_mid': f"{batch_metrics['neg_midpoint']:.4f}",
+                # 'pos_dist': f"{batch_metrics['pos_distance']:.4f}",
+                # 'neg_dist': f"{batch_metrics['neg_distance']:.4f}",
+                # 'pos_mid': f"{batch_metrics['pos_midpoint']:.4f}",
+                # 'neg_mid': f"{batch_metrics['neg_midpoint']:.4f}",
             }
             pbar.set_postfix(progress)
             

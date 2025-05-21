@@ -412,7 +412,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
             return_tensors="pt"
         )
         
-        return {k: v.squeeze(0) for k, v in encoded.items()}
+        return {k: v for k, v in encoded.items()}
 
     
     def _generate_batch(self) -> Optional[Tuple[GraphData, BatchInfo]]:

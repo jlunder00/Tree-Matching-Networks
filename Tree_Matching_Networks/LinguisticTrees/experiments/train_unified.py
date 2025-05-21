@@ -173,11 +173,11 @@ def train_unified(args):
         from transformers import AutoTokenizer
         
         tokenizer_path = config['model']['bert'].get('tokenizer_path', 'bert-base-uncased')
-        model = BertEmbeddingNet(config).to(config['device']) 
         logger.info(f"Loading tokenizer from {tokenizer_path}")
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+        model = BertEmbeddingNet(config, tokenizer).to(config['device']) 
 
         
-        tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
     else:
         # Graph mode - initialize TreeMatchingNet or TreeEmbeddingNet
         model_type = config['model'].get('model_type', 'matching')
