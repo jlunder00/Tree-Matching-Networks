@@ -15,7 +15,7 @@ model:
     num_attention_layers: 4
     intermediate_size: 512
     vocab_size: 2400
-    tokenizer_path: /home/jlunder/local_storage/tokenizers/bert-tokenizer2400_5/
+    tokenizer_path: /home/jlunder/local_storage/tokenizers/bert-tokenizer10000_2/
   graph:
     node_feature_dim: 804
     edge_feature_dim: 70

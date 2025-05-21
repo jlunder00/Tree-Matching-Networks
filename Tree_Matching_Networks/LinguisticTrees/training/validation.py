@@ -18,31 +18,78 @@ from .loss_handlers import LOSS_HANDLERS as loss_handlers
 logger = logging.getLogger(__name__)
 
 @torch.no_grad()
-def validate_step_contrastive(model, graphs, batch_info, loss_fn, device, config):
+def validate_step_bert(model, batch_encoding, batch_info, loss_fn, device, config):
+    try:
+        # Move batch encoding to device
+        batch_encoding = {k: v.to(device, non_blocking=True) for k, v in batch_encoding.items()}
+        
+        # Forward pass through BERT
+        # Note: BERT takes single sentences and produces single embeddings
+        # Unlike tree_matching which takes pairs and produces pairs
+        embeddings = model(**batch_encoding)
+        
+        # The embeddings are now in the same format expected by your loss functions
+        # [batch_size, hidden_dim] with the indices corresponding to batch_info
+        loss, predictions, metrics = loss_fn(embeddings, batch_info)
+        del batch_encoding
+        del embeddings
+        torch.cuda.empty_cache()
+        
+        return loss.item(), predictions, metrics
+    except RuntimeError as e:
+        if "out of memory" in str(e):
+            logger.error("OOM during BERT validate step")
+            torch.cuda.empty_cache()
+            MemoryMonitor.clear_memory()
+            raise
+        else:
+            raise
+
+    
+@torch.no_grad()
+def validate_step_contrastive_graph(model, X, device):
+    # Move data to device
+    graphs = GraphData(
+        node_features=X.node_features.to(device, non_blocking=True),
+        edge_features=X.edge_features.to(device, non_blocking=True),
+        from_idx=X.from_idx.to(device, non_blocking=True),
+        to_idx=X.to_idx.to(device, non_blocking=True),
+        graph_idx=X.graph_idx.to(device, non_blocking=True),
+        n_graphs=X.n_graphs
+    )
+    
+    # Forward pass
+    embeddings = model(
+        graphs.node_features,
+        graphs.edge_features,
+        graphs.from_idx,
+        graphs.to_idx,
+        graphs.graph_idx,
+        graphs.n_graphs
+    )
+    return embeddings
+
+@torch.no_grad()
+def validate_step_contrastive_bert(model, X, device):
+    # Move data to device
+    batch_encoding = {k: v.to(device, non_blocking=True) for k, v in X.items()}
+    
+    # Forward pass
+    embeddings = model(**batch_encoding)
+    return embeddings
+    
+
+forward_step_handlers = {
+    'graph': validate_step_contrastive_graph,
+    'bert': validate_step_contrastive_bert
+}
+
+@torch.no_grad()
+def validate_step_contrastive(model, X, batch_info, loss_fn, device, config):
     """Single validation step with memory management"""
     try:
-        # Move data to device
-        graphs = GraphData(
-            node_features=graphs.node_features.to(device, non_blocking=True),
-            edge_features=graphs.edge_features.to(device, non_blocking=True),
-            from_idx=graphs.from_idx.to(device, non_blocking=True),
-            to_idx=graphs.to_idx.to(device, non_blocking=True),
-            graph_idx=graphs.graph_idx.to(device, non_blocking=True),
-            n_graphs=graphs.n_graphs
-        )
-        
-        # Forward pass
-        embeddings = model(
-            graphs.node_features,
-            graphs.edge_features,
-            graphs.from_idx,
-            graphs.to_idx,
-            graphs.graph_idx,
-            graphs.n_graphs
-        )
-        
+        embeddings = forward_step_handlers[config['model_name']](model, X, device)
         loss, predictions, base_metrics = loss_fn(embeddings, batch_info)
-
         if 'aggregative' in config['model']['task_loader_type']:
             accuracy_metrics = {}
             

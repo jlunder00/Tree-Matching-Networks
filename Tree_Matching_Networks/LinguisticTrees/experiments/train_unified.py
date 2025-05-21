@@ -176,6 +176,7 @@ def train_unified(args):
         logger.info(f"Loading tokenizer from {tokenizer_path}")
         tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
         model = BertEmbeddingNet(config, tokenizer).to(config['device']) 
+        config['model_name'] = 'bert'
 
         
     else:
@@ -187,6 +188,7 @@ def train_unified(args):
             model = TreeEmbeddingNet(config).to(config['device'])
         else:
             model = TreeMatchingNet(config).to(config['device'])
+        config['model_name'] = 'graph'
     
     # 3.2 Initialize optimizer
     logger.info("Initializing optimizer")
@@ -232,7 +234,8 @@ def train_unified(args):
         logger.info("Creating contrastive datasets")
         
         train_dataset = DynamicCalculatedContrastiveDataset(
-            data_dir=[str(path) for path in data_config.train_paths],
+            # data_dir=[str(path) for path in data_config.train_paths],
+            data_dir=[str(path) for path in data_config.dev_paths],
             config=config,
             batch_size=config['data']['batch_size'],  
             anchors_per_group=config['data'].get('anchors_per_group', 1),

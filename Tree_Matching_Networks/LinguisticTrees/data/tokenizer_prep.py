@@ -343,15 +343,15 @@ if __name__ == "__main__":
         text_dirs=text_dirs,
         text_file_pattern="*",  # Adjust if your files have different extensions
         delimiters=delimiters,
-        vocab_size=5000,
-        min_frequency=5,
+        vocab_size=10000,
+        min_frequency=2,
         batch_size=1000,
         max_samples=None,  # Set to a number if you want to limit samples
-        tokenizer_save_path="/home/jlunder/local_storage/tokenizers/combined_tokenizer_5000_5.json"
+        tokenizer_save_path="/home/jlunder/local_storage/tokenizers/combined_tokenizer_10000_2.json"
     )
     
     # Convert to BertTokenizerFast format
-    convert_to_transformers_tokenizer("/home/jlunder/local_storage/tokenizers/combined_tokenizer_2400_5.json")
+    convert_to_transformers_tokenizer("/home/jlunder/local_storage/tokenizers/combined_tokenizer_10000_2.json")
 
 # import json
 # import torch
