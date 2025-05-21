@@ -2,32 +2,40 @@
 
 #Legacy: used with dynamic calculated contrastive dataset, aspects still relevant in aggregative, could be used, not currently used
 # configs/experiment_configs/contrastive_config.yaml
+text_mode: True
 model:
   task_type: info_nce
   task_loader_type: contrastive
   name: tree_matching
   model_type: matching
-  node_feature_dim: 804
-  edge_feature_dim: 70
-  node_state_dim: 1024
-  edge_state_dim: 256
-  #both edge and node hidden sizes will have a node_state_dim*2 or node_state_dim*3 layer appended in model definition. x3 or x2 is dependant on embedding vs matching type as is required
-  edge_hidden_sizes: 
-    - 512
-  node_hidden_sizes: 
-    - 1024
-  
-  graph_rep_dim: 1792
-  #graph_transform_sizes wil have graph_rep_dim appended on it
-  graph_transform_sizes: 
-    - 1024
+  bert:
+    hidden_size: 256
+    num_hidden_layers: 2
+    num_attention_layers: 4
+    intermediate_size: 512
+    vocab_size: 2400
+  graph:
+    node_feature_dim: 804
+    edge_feature_dim: 70
+    node_state_dim: 1024
+    edge_state_dim: 256
+    #both edge and node hidden sizes will have a node_state_dim*2 or node_state_dim*3 layer appended in model definition. x3 or x2 is dependant on embedding vs matching type as is required
+    edge_hidden_sizes: 
+      - 512
+    node_hidden_sizes: 
+      - 1024
+    
+    graph_rep_dim: 1792
+    #graph_transform_sizes wil have graph_rep_dim appended on it
+    graph_transform_sizes: 
+      - 1024
 
-  edge_net_init_scale: 0.1
-  reverse_dir_param_different: false
-  use_reverse_direction: true
-  share_prop_params: true
+    edge_net_init_scale: 0.1
+    reverse_dir_param_different: false
+    use_reverse_direction: true
+    share_prop_params: true
 
-  n_prop_layers: 5
+    n_prop_layers: 5
   temperature: 0.05
   # dropout: 0.2
 
@@ -35,48 +43,48 @@ data:
   dataset_type: wikiqs
   dataset_specs: 
     - wikiqs
-    - amazonqa_single/Electronics
-    - amazonqa_single/Baby
-    - amazonqa_multiple/Baby
-    - amazonqa_multiple/Electronics
-    - amazonqa_single/Home_and_Kitchen
-    - amazonqa_single/Industrial_and_Scientific
-    - amazonqa_single/Sports_and_Outdoors
-    - amazonqa_single/qa_Appliances
-    - amazonqa_single/Arts_Crafts_and_Sewing
-    - amazonqa_single/Automotive
-    - amazonqa_single/Beauty
-    - amazonqa_single/Cell_Phones_and_Accessories
-    - amazonqa_single/Clothing_Shoes_and_Jewelry
-    - amazonqa_single/Grocery_and_Gourmet_Food
-    - amazonqa_single/Health_and_Personal_Care
-    - amazonqa_single/Musical_Instruments
-    - amazonqa_single/Office_Products
-    - amazonqa_single/Patio_Lawn_and_Garden
-    - amazonqa_single/Pet_Supplies
-    - amazonqa_single/Software
-    - amazonqa_single/Tools_and_Home_Improvement
-    - amazonqa_single/Toys_and_Games
-    - amazonqa_single/Video_Games
-    - amazonqa_multiple/Home_and_Kitchen
-    - amazonqa_multiple/Industrial_and_Scientific
-    - amazonqa_multiple/Sports_and_Outdoors
-    - amazonqa_multiple/qa_Appliances
-    - amazonqa_multiple/Arts_Crafts_and_Sewing
-    - amazonqa_multiple/Automotive
-    - amazonqa_multiple/Beauty
-    - amazonqa_multiple/Cell_Phones_and_Accessories
-    - amazonqa_multiple/Clothing_Shoes_and_Jewelry
-    - amazonqa_multiple/Grocery_and_Gourmet_Food
-    - amazonqa_multiple/Health_and_Personal_Care
-    - amazonqa_multiple/Musical_Instruments
-    - amazonqa_multiple/Office_Products
-    - amazonqa_multiple/Patio_Lawn_and_Garden
-    - amazonqa_multiple/Pet_Supplies
-    - amazonqa_multiple/Software
-    - amazonqa_multiple/Tools_and_Home_Improvement
-    - amazonqa_multiple/Toys_and_Games
-    - amazonqa_multiple/Video_Games
+    # - amazonqa_single/Electronics
+    # - amazonqa_single/Baby
+    # - amazonqa_multiple/Baby
+    # - amazonqa_multiple/Electronics
+    # - amazonqa_single/Home_and_Kitchen
+    # - amazonqa_single/Industrial_and_Scientific
+    # - amazonqa_single/Sports_and_Outdoors
+    # - amazonqa_single/qa_Appliances
+    # - amazonqa_single/Arts_Crafts_and_Sewing
+    # - amazonqa_single/Automotive
+    # - amazonqa_single/Beauty
+    # - amazonqa_single/Cell_Phones_and_Accessories
+    # - amazonqa_single/Clothing_Shoes_and_Jewelry
+    # - amazonqa_single/Grocery_and_Gourmet_Food
+    # - amazonqa_single/Health_and_Personal_Care
+    # - amazonqa_single/Musical_Instruments
+    # - amazonqa_single/Office_Products
+    # - amazonqa_single/Patio_Lawn_and_Garden
+    # - amazonqa_single/Pet_Supplies
+    # - amazonqa_single/Software
+    # - amazonqa_single/Tools_and_Home_Improvement
+    # - amazonqa_single/Toys_and_Games
+    # - amazonqa_single/Video_Games
+    # - amazonqa_multiple/Home_and_Kitchen
+    # - amazonqa_multiple/Industrial_and_Scientific
+    # - amazonqa_multiple/Sports_and_Outdoors
+    # - amazonqa_multiple/qa_Appliances
+    # - amazonqa_multiple/Arts_Crafts_and_Sewing
+    # - amazonqa_multiple/Automotive
+    # - amazonqa_multiple/Beauty
+    # - amazonqa_multiple/Cell_Phones_and_Accessories
+    # - amazonqa_multiple/Clothing_Shoes_and_Jewelry
+    # - amazonqa_multiple/Grocery_and_Gourmet_Food
+    # - amazonqa_multiple/Health_and_Personal_Care
+    # - amazonqa_multiple/Musical_Instruments
+    # - amazonqa_multiple/Office_Products
+    # - amazonqa_multiple/Patio_Lawn_and_Garden
+    # - amazonqa_multiple/Pet_Supplies
+    # - amazonqa_multiple/Software
+    # - amazonqa_multiple/Tools_and_Home_Improvement
+    # - amazonqa_multiple/Toys_and_Games
+    # - amazonqa_multiple/Video_Games
   allow_cross_dataset_negatives: true
   batch_size: 256
   strict_matching: False
@@ -88,7 +96,7 @@ data:
   prefetch_factor: 1
   max_batches_per_epoch: 250
 
-embedding_cache_dir: '/home/jlunder/research/TMN_DataGen/embedding_cache4/'
+embedding_cache_dir: '/home/jlunder/research/TMN_DataGen/embedding_cache5/'
 use_gpu: false
 
 train:

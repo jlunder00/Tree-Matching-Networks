@@ -19,6 +19,7 @@ try:
     from ..data import get_paired_groups_dataloader, get_dynamic_calculated_dataloader
     from ..models.tree_matching import TreeMatchingNet
     from ..models.tree_embedding import TreeEmbeddingNet
+    from ..models.bert_embedding import BertEmbeddingNet
     from ..training.experiment import ExperimentManager
     from ..training.train import train_epoch
     from ..training.validation import validate_epoch
@@ -31,6 +32,7 @@ except ImportError:
     from Tree_Matching_Networks.LinguisticTrees.data import get_paired_groups_dataloader, get_dynamic_calculated_dataloader
     from Tree_Matching_Networks.LinguisticTrees.models.tree_matching import TreeMatchingNet
     from Tree_Matching_Networks.LinguisticTrees.models.tree_embedding import TreeEmbeddingNet
+    from Tree_Matching_Networks.LinguisticTrees.models.bert_embedding import BertEmbeddingNet
     from Tree_Matching_Networks.LinguisticTrees.training.experiment import ExperimentManager
     from Tree_Matching_Networks.LinguisticTrees.training.train import train_epoch
     from Tree_Matching_Networks.LinguisticTrees.training.validation import validate_epoch
@@ -133,7 +135,7 @@ def train_unified(args):
             data_root=args.data_root,
             dataset_specs=config.get('data', {}).get('dataset_specs', 
                                                    [config.get('data', {}).get('dataset_type', 'wikiqs')]),
-            task_type='',  # Empty for flexibility
+            task_type=config.get('model', {}).get('task_type', 'infonce'),  # Empty for flexibility
             use_sharded_train=True,
             use_sharded_validate=True,
             allow_cross_dataset_negatives=config.get('data', {}).get('allow_cross_dataset_negatives', True)
@@ -142,7 +144,7 @@ def train_unified(args):
         data_config = TreeDataConfig(
             dataset_specs=config.get('data', {}).get('dataset_specs', 
                                                    [config.get('data', {}).get('dataset_type', 'wikiqs')]),
-            task_type='',  # Empty for flexibility
+            task_type=config.get('model', {}).get('task_type', 'infonce'),  # Empty for flexibility
             use_sharded_train=True,
             use_sharded_validate=True,
             allow_cross_dataset_negatives=config.get('data', {}).get('allow_cross_dataset_negatives', True)
@@ -162,16 +164,14 @@ def train_unified(args):
     
     if text_mode:
         # Text mode - initialize BERT or other transformer model
-        from transformers import AutoModel, AutoTokenizer
+        from transformers import AutoTokenizer
         
-        tokenizer_path = config['model'].get('tokenizer_path', 'bert-base-uncased')
-        model_path = config['model'].get('model_path', 'bert-base-uncased')
-        
-        logger.info(f"Loading text model from {model_path}")
+        tokenizer_path = config['model']['bert'].get('tokenizer_path', 'bert-base-uncased')
+        model = BertEmbeddingNet(config).to(config['device']) 
         logger.info(f"Loading tokenizer from {tokenizer_path}")
+
         
         tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
-        model = AutoModel.from_pretrained(model_path).to(config['device'])
     else:
         # Graph mode - initialize TreeMatchingNet or TreeEmbeddingNet
         model_type = config['model'].get('model_type', 'matching')

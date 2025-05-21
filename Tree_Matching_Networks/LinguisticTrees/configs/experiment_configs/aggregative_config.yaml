@@ -89,3 +89,55 @@ wandb:
   log_interval: 10
   memory_logging: true
 
+#backup:
+  #  # node_state_dim: 1024
+  # edge_state_dim: 256
+#   #both edge and node hidden sizes will have a node_state_dim*2 or node_state_dim*3 layer appended in model definition. x3 or x2 is dependant on embedding vs matching type as is required
+#   edge_hidden_sizes: 
+#     - 512
+#   node_hidden_sizes: 
+#     - 1024
+#   
+#   graph_rep_dim: 1792
+#   #graph_transform_sizes wil have graph_rep_dim appended on it
+#   graph_transform_sizes: 
+#     - 1024
+
+#   edge_net_init_scale: 0.1
+#   reverse_dir_param_different: false
+#   use_reverse_direction: true
+#   share_prop_params: true
+
+#   n_prop_layers: 5
+#   temperature: 0.05
+#   aggregation: attention
+
+#   # for patentmatch
+#   # positive_infonce_weight: 0.3
+#   # inverse_infonce_weight: 1.0
+#   # midpoint_infonce_weight: 0.0
+#   # thresh_low: 0.5
+#   # thresh_high: 0.5
+
+#   #for entailment and semeval
+#   positive_infonce_weight: 0.05
+#   inverse_infonce_weight: 1.0
+#   midpoint_infonce_weight: 0.1
+#   thresh_low: -0.33
+#   thresh_high: 0.33
+
+#   #for binary
+#   threshold: 0.0
+
+
+
+# data:
+#   # dataset_type: patentmatch_balanced
+#   # dataset_type: semeval
+#   dataset_type: snli
+
+#   batch_size: 256
+#   strict_matching: False
+#   min_trees_per_group: 1
+#   batch_size: 256
+

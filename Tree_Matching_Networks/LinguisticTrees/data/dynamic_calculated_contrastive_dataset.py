@@ -172,6 +172,9 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         self.text_mode = text_mode
         self.tokenizer = tokenizer
         self.max_length = max_length
+        if self.allow_text_files and not self.text_mode:
+            logger.warning("text mode not activated when text files are allowed. Forcing text mode in dataloader")
+            self.text_mode = True
 
         if self.model_type == 'matching' and self.strict_matching:
             #adjusts the batch size to use the entirety of the calculated integer number of groups. Rounding up with ceil = True means
