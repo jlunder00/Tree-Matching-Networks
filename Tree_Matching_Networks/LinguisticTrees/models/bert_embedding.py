@@ -30,7 +30,13 @@ class BertEmbeddingNet(nn.Module):
         # Initialize model from scratch with custom config
         self.bert = AutoModel.from_config(self.bert_config) 
         
-        
+        # Either include a projection or decide to use embeddings directly
+        graph_rep_dim = config['model']['graph'].get('graph_rep_dim', 768)
+        if graph_rep_dim != hidden_size:
+            self.projection = nn.Linear(hidden_size, graph_rep_dim)
+        else:
+            self.projection = nn.Identity()
+    
     def forward(self, batch_encoding):
         """
         Forward pass through BERT
@@ -39,7 +45,7 @@ class BertEmbeddingNet(nn.Module):
             batch_encoding: Dictionary with keys 'input_ids', 'attention_mask', etc.
             
         Returns:
-            Tensor of shape [batch_size, graph_rep_dim]
+            Tensor of shape [batch_size, hidden_dim]
         """
         # Get BERT embeddings
         outputs = self.bert(
@@ -51,7 +57,5 @@ class BertEmbeddingNet(nn.Module):
         # Get the [CLS] token embedding as sentence representation
         sentence_embeds = outputs.last_hidden_state[:, 0]
         
-        # Project to match graph representation dimensions
-        graph_embeds = self.projection(sentence_embeds)
-        
-        return graph_embeds
+        # Return embeddings directly or projected
+        return self.projection(sentence_embeds)

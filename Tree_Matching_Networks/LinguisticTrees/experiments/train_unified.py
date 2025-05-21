@@ -153,6 +153,12 @@ def train_unified(args):
     # 2.3 Set up common dataset parameters
     logger.info("Preparing dataset parameters")
     text_mode = config.get('text_mode', False)
+    allow_text_files = config.get('allow_text_files', False)
+    # Force text_mode if allow_text_files is enabled
+    if allow_text_files and not text_mode:
+        logger.warning("allow_text_files is True but text_mode is False. Forcing text_mode to True")
+        text_mode = True
+        config['text_mode'] = True
     tokenizer = None
     
     #==========================================================================
@@ -239,6 +245,7 @@ def train_unified(args):
             model_type=config['model'].get('model_type', 'matching'),
             strict_matching=config['data'].get('strict_matching', False),
             text_mode=text_mode,
+            allow_text_files=allow_text_files,
             tokenizer=tokenizer,
             max_length=config.get('max_length', 512)
         )
@@ -257,6 +264,7 @@ def train_unified(args):
             model_type=config['model'].get('model_type', 'matching'),
             strict_matching=config['data'].get('strict_matching', False),
             text_mode=text_mode,
+            allow_text_files=allow_text_files,
             tokenizer=tokenizer,
             max_length=config.get('max_length', 512)
         )
@@ -278,6 +286,7 @@ def train_unified(args):
             label_map=label_map,
             label_norm=label_norm,
             text_mode=text_mode,
+            allow_text_files=allow_text_files,
             tokenizer=tokenizer,
             max_length=config.get('max_length', 512)
         )
@@ -296,6 +305,7 @@ def train_unified(args):
             label_map=label_map,
             label_norm=label_norm,
             text_mode=text_mode,
+            allow_text_files=allow_text_files,
             tokenizer=tokenizer,
             max_length=config.get('max_length', 512)
         )

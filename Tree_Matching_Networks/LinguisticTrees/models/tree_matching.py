@@ -12,21 +12,21 @@ import torch
 #models/tree_matching.py
 class TreeMatchingNet(GraphMatchingNet):
     def __init__(self, config):
-        node_feature_dim = config['model']['node_feature_dim']
-        edge_feature_dim = config['model']['edge_feature_dim']
-        node_state_dim = config['model']['node_state_dim']
-        edge_state_dim = config['model']['edge_state_dim']
-        node_hidden_sizes = config['model']['node_hidden_sizes']
+        node_feature_dim = config['model']['graph']['node_feature_dim']
+        edge_feature_dim = config['model']['graph']['edge_feature_dim']
+        node_state_dim = config['model']['graph']['node_state_dim']
+        edge_state_dim = config['model']['graph']['edge_state_dim']
+        node_hidden_sizes = config['model']['graph']['node_hidden_sizes']
         node_hidden_sizes.append(node_state_dim*2)
-        edge_hidden_sizes = config['model']['edge_hidden_sizes']
+        edge_hidden_sizes = config['model']['graph']['edge_hidden_sizes']
         edge_hidden_sizes.append(node_state_dim*2)
-        graph_rep_dim = config['model']['graph_rep_dim']
-        graph_transform_sizes = config['model']['graph_transform_sizes']
-        edge_net_init_scale = config['model']['edge_net_init_scale']
-        n_prop_layers = config['model']['n_prop_layers']
-        share_prop_params = config['model']['share_prop_params']  # Add parameter sharing to reduce memory
-        use_reverse_direction = config['model']['use_reverse_direction']
-        reverse_dir_param_different= config['model']['reverse_dir_param_different']
+        graph_rep_dim = config['model']['graph']['graph_rep_dim']
+        graph_transform_sizes = config['model']['graph']['graph_transform_sizes']
+        edge_net_init_scale = config['model']['graph']['edge_net_init_scale']
+        n_prop_layers = config['model']['graph']['n_prop_layers']
+        share_prop_params = config['model']['graph']['share_prop_params']  # Add parameter sharing to reduce memory
+        use_reverse_direction = config['model']['graph']['use_reverse_direction']
+        reverse_dir_param_different= config['model']['graph']['reverse_dir_param_different']
         if graph_transform_sizes is None:
             graph_transform_sizes = []
         graph_transform_sizes.append(graph_rep_dim)
