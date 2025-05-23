@@ -235,18 +235,27 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         
         # Load counts from _counts files (used only for __len__ estimation)
         self.file_counts = []
+        print(f"counting: {self.data_files}\n{len(self.data_files)}")
         for file in self.data_files:
             count_file = file.parent / f"{file.stem}_counts.json"
+            if file.suffix == '.txt':
+                self.file_counts.append({
+                    'n_groups': 10000,
+                    'trees_per_group': [10]*10000
+                })
+                continue
             if count_file.exists():
                 with open(count_file) as f:
                     self.file_counts.append(json.load(f))
             else:
+                print(f"shit its being loaded {file.suffix}")
                 data = self._dataloader_handlers[file.suffix](file)
                 self.file_counts.append({
                     'n_groups': len(data.get('groups', [])),
                     'trees_per_group': [len(g.get('trees', [])) for g in data.get('groups', [])]
                 })
                     
+        print("counting done")
         # # Initialize feature extractor if needed.
         data = self._dataloader_handlers[file.suffix](self.data_files[0])
         self.requires_embeddings = data.get('requires_word_embeddings', False) and not self.text_mode
@@ -272,6 +281,8 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
     @dataloader_handler(".txt")
     def parse_wikiqs_file(self, file):
         data = []
+        filtered_too_long = 0
+        max_char_length = self.config['data'].get("max_text_chars", 500)
         with open(file) as f:
             for i, line in enumerate(f):
                 trees = []
@@ -283,6 +294,9 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
                     for q in line.strip().split('\t')
                     if q.startswith('q:') or q.startswith('a:')
                 ]
+                original_count = len(questions)
+                questions = [q for q in questions if len(q) < max_char_length]
+                filtered_too_long += (original_count - len(questions))
                 if len(questions) < 2:
                     continue
                 rejoined_line = ' '.join(questions)
@@ -295,6 +309,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
                     'text': rejoined_line.strip(),
                     'text_b': rejoined_line.strip(),
                 })
+        print(f"{filtered_too_long} texts removed for being too long")
         return {
             "groups": data,
             "version": "1.0",
@@ -411,8 +426,40 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
             truncation=True,
             return_tensors="pt"
         )
+        actual_length = len([t for t in encoded['input_ids'][0] if t != self.tokenizer.pad_token_id])
+        if actual_length >= self.max_length:
+            print(f"TRUNCATED: text was {actual_length}+ tokens, cut to {self.max_length}")
+            print(f"{text}")
+
         
         return {k: v for k, v in encoded.items()}
+
+    def _tokenize_pair_separate(self, text_a: str, text_b: str) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
+        """Tokenize a pair of texts separately for matching models."""
+        if self.tokenizer is None:
+            raise ValueError("Tokenizer must be provided when text_mode is enabled")
+            
+        # Tokenize each sequence separately
+        encoded_a = self.tokenizer(
+            text_a,
+            max_length=self.max_length,
+            padding="max_length",
+            truncation=True,
+            return_tensors="pt"
+        )
+        
+        encoded_b = self.tokenizer(
+            text_b,
+            max_length=self.max_length,
+            padding="max_length",
+            truncation=True,
+            return_tensors="pt"
+        )
+        
+        return (
+            {k: v.squeeze(0) for k, v in encoded_a.items()},
+            {k: v.squeeze(0) for k, v in encoded_b.items()}
+        )
 
     
     def _generate_batch(self) -> Optional[Tuple[GraphData, BatchInfo]]:
@@ -552,17 +599,54 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         )
 
         if self.text_mode:
-            text_inputs = [self._tokenize_text(tree.get('text', '')) for tree in batch_trees]
-            if text_inputs:
-                batch_encoded = {k: torch.cat([p[k] for p in text_inputs]) for k in text_inputs[0].keys()}
+            model_type = self.config['model'].get('model_type', 'embedding')
+            if model_type == 'matching':
+                # For matching models, we need to tokenize pairs separately
+                # Collect pairs based on the batch structure
+                text_pairs = []
+                
+                # Create pairs from batch_trees based on positive pairs
+                for anchor_idx, pos_idx in positive_pairs:
+                    text_a = batch_trees[anchor_idx].get('text', '')
+                    text_b = batch_trees[pos_idx].get('text', '')
+                    text_pairs.append((text_a, text_b))
+                
+                # Tokenize all pairs separately
+                batch_encoding_a_list = []
+                batch_encoding_b_list = []
+                
+                for text_a, text_b in text_pairs:
+                    encoding_a, encoding_b = self._tokenize_pair_separate(text_a, text_b)
+                    batch_encoding_a_list.append(encoding_a)
+                    batch_encoding_b_list.append(encoding_b)
+                
+                if batch_encoding_a_list:
+                    batch_encoding_a = {k: torch.stack([enc[k] for enc in batch_encoding_a_list]) 
+                                       for k in batch_encoding_a_list[0].keys()}
+                    batch_encoding_b = {k: torch.stack([enc[k] for enc in batch_encoding_b_list]) 
+                                       for k in batch_encoding_b_list[0].keys()}
+                    output = (batch_encoding_a, batch_encoding_b)
+                else:
+                    # Empty batch fallback
+                    empty_encoding = {
+                        'input_ids': torch.zeros((0, self.max_length), dtype=torch.long),
+                        'attention_mask': torch.zeros((0, self.max_length), dtype=torch.long),
+                        'token_type_ids': torch.zeros((0, self.max_length), dtype=torch.long)
+                    }
+                    output = (empty_encoding, empty_encoding)
             else:
-                # Empty batch fallback
-                batch_encoded = {
-                    'input_ids': torch.zeros((0, self.max_length), dtype=torch.long),
-                    'attention_mask': torch.zeros((0, self.max_length), dtype=torch.long),
-                    'token_type_ids': torch.zeros((0, self.max_length), dtype=torch.long)
-                }
-            output = batch_encoded
+
+                text_inputs = [self._tokenize_text(tree.get('text', '')) for tree in batch_trees]
+                if text_inputs:
+                    batch_encoded = {k: torch.cat([p[k] for p in text_inputs]) for k in text_inputs[0].keys()}
+                else:
+                    # Empty batch fallback
+                    batch_encoded = {
+                        'input_ids': torch.zeros((0, self.max_length), dtype=torch.long),
+                        'attention_mask': torch.zeros((0, self.max_length), dtype=torch.long),
+                        'token_type_ids': torch.zeros((0, self.max_length), dtype=torch.long)
+                    }
+                output = batch_encoded
         else:
             if self.model_type == 'embedding': #format as pairs for graph matching model with attention network
                 # Finally, convert the list of trees to GraphData.
@@ -668,7 +752,14 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
     def __len__(self):
         """A rough length estimate (number of pairs) based on counts."""
         total_trees = sum(sum(fc['trees_per_group']) for fc in self.file_counts)
-        return total_trees // self.batch_size
+        worker_info = get_worker_info()
+        mult = 14
+        if worker_info is not None:
+            mult = worker_info.num_workers
+        
+
+        return min(total_trees // self.batch_size, self.config['data'].get('max_batches_per_epoch', 250)*mult)
+        
 
 
 def get_dynamic_calculated_dataloader(dataset: DynamicCalculatedContrastiveDataset,

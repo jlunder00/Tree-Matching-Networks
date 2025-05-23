@@ -20,6 +20,7 @@ try:
     from ..models.tree_matching import TreeMatchingNet
     from ..models.tree_embedding import TreeEmbeddingNet
     from ..models.bert_embedding import BertEmbeddingNet
+    from ..models.bert_matching import BertMatchingNet
     from ..training.experiment import ExperimentManager
     from ..training.train import train_epoch
     from ..training.validation import validate_epoch
@@ -33,6 +34,7 @@ except ImportError:
     from Tree_Matching_Networks.LinguisticTrees.models.tree_matching import TreeMatchingNet
     from Tree_Matching_Networks.LinguisticTrees.models.tree_embedding import TreeEmbeddingNet
     from Tree_Matching_Networks.LinguisticTrees.models.bert_embedding import BertEmbeddingNet
+    from Tree_Matching_Networks.LinguisticTrees.models.bert_matching import BertMatchingNet
     from Tree_Matching_Networks.LinguisticTrees.training.experiment import ExperimentManager
     from Tree_Matching_Networks.LinguisticTrees.training.train import train_epoch
     from Tree_Matching_Networks.LinguisticTrees.training.validation import validate_epoch
@@ -168,6 +170,7 @@ def train_unified(args):
     # 3.1 Initialize text model or graph model based on config
     logger.info(f"Initializing model (text_mode: {text_mode})")
     
+    model_type = config['model'].get('model_type', 'matching')
     if text_mode:
         # Text mode - initialize BERT or other transformer model
         from transformers import AutoTokenizer
@@ -175,13 +178,15 @@ def train_unified(args):
         tokenizer_path = config['model']['bert'].get('tokenizer_path', 'bert-base-uncased')
         logger.info(f"Loading tokenizer from {tokenizer_path}")
         tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
-        model = BertEmbeddingNet(config, tokenizer).to(config['device']) 
+        if model_type == 'embedding':
+            model = BertEmbeddingNet(config, tokenizer).to(config['device']) 
+        else:
+            model = BertMatchingNet(config, tokenizer).to(config['device'])
         config['model_name'] = 'bert'
 
         
     else:
         # Graph mode - initialize TreeMatchingNet or TreeEmbeddingNet
-        model_type = config['model'].get('model_type', 'matching')
         logger.info(f"Creating {model_type} graph model")
         
         if model_type == 'embedding':
@@ -235,7 +240,7 @@ def train_unified(args):
         
         train_dataset = DynamicCalculatedContrastiveDataset(
             # data_dir=[str(path) for path in data_config.train_paths],
-            data_dir=[str(path) for path in data_config.dev_paths],
+            data_dir=[str(path) for path in data_config.train_paths],
             config=config,
             batch_size=config['data']['batch_size'],  
             anchors_per_group=config['data'].get('anchors_per_group', 1),
@@ -250,7 +255,7 @@ def train_unified(args):
             text_mode=text_mode,
             allow_text_files=allow_text_files,
             tokenizer=tokenizer,
-            max_length=config.get('max_length', 512)
+            max_length=config['model']['bert'].get('max_position_embeddings', 512)
         )
         
         val_dataset = DynamicCalculatedContrastiveDataset(
@@ -269,7 +274,7 @@ def train_unified(args):
             text_mode=text_mode,
             allow_text_files=allow_text_files,
             tokenizer=tokenizer,
-            max_length=config.get('max_length', 512)
+            max_length=config['model']['bert'].get('max_position_embeddings', 512)
         )
     else:
         # Aggregative mode - use paired groups dataset
@@ -291,7 +296,7 @@ def train_unified(args):
             text_mode=text_mode,
             allow_text_files=allow_text_files,
             tokenizer=tokenizer,
-            max_length=config.get('max_length', 512)
+            max_length=config['model']['bert'].get('max_position_embeddings', 512)
         )
         
         val_dataset = create_paired_groups_dataset(
@@ -310,7 +315,7 @@ def train_unified(args):
             text_mode=text_mode,
             allow_text_files=allow_text_files,
             tokenizer=tokenizer,
-            max_length=config.get('max_length', 512)
+            max_length=config['model']['bert'].get('max_position_embeddings', 512)
         )
     
     #==========================================================================

@@ -23,13 +23,28 @@ def train_step_bert(model, batch_encoding, batch_info, optimizer, loss_fn, confi
     device = config['device']
     
     try:
-        # Move batch encoding to device
-        batch_encoding = {k: v.to(device, non_blocking=True) for k, v in batch_encoding.items()}
-        
-        # Forward pass through BERT
-        # Note: BERT takes single sentences and produces single embeddings
-        # Unlike tree_matching which takes pairs and produces pairs
-        embeddings = model(**batch_encoding)
+        if (isinstance(batch_encoding, tuple) or isinstance(batch_encoding, list)) and len(batch_encoding) == 2 and all(isinstance(x, dict) for x in batch_encoding):
+            # BERT Matching: tuple of (batch_encoding_a, batch_encoding_b)
+            batch_encoding_a, batch_encoding_b = batch_encoding
+            
+            # Move to device
+            batch_encoding_a = {k: v.to(device, non_blocking=True) for k, v in batch_encoding_a.items()}
+            batch_encoding_b = {k: v.to(device, non_blocking=True) for k, v in batch_encoding_b.items()}
+            
+            # Forward pass
+            embed_a, embed_b = model(batch_encoding_a, batch_encoding_b)
+            
+            # Interleave embeddings to match expected format
+            embeddings = torch.stack([embed_a, embed_b], dim=1).view(-1, embed_a.shape[-1])
+            
+        else:
+            # Move batch encoding to device
+            batch_encoding = {k: v.to(device, non_blocking=True) for k, v in batch_encoding.items()}
+            
+            # Forward pass through BERT
+            # Note: BERT takes single sentences and produces single embeddings
+            # Unlike tree_matching which takes pairs and produces pairs
+            embeddings = model(**batch_encoding)
         
         # The embeddings are now in the same format expected by your loss functions
         # [batch_size, hidden_dim] with the indices corresponding to batch_info
@@ -59,13 +74,27 @@ def train_step_bert_infonce(model, batch_encoding, batch_info, optimizer, loss_f
     device = config['device']
     
     try:
-        # Move batch encoding to device
-        batch_encoding = {k: v.to(device, non_blocking=True) for k, v in batch_encoding.items()}
-        
-        # Forward pass through BERT
-        # Note: BERT takes single sentences and produces single embeddings
-        # Unlike tree_matching which takes pairs and produces pairs
-        embeddings = model(**batch_encoding)
+        if (isinstance(batch_encoding, tuple) or isinstance(batch_encoding, list)) and len(batch_encoding) == 2 and all(isinstance(x, dict) for x in batch_encoding):
+            # BERT Matching: tuple of (batch_encoding_a, batch_encoding_b)
+            batch_encoding_a, batch_encoding_b = batch_encoding
+            
+            # Move to device
+            batch_encoding_a = {k: v.to(device, non_blocking=True) for k, v in batch_encoding_a.items()}
+            batch_encoding_b = {k: v.to(device, non_blocking=True) for k, v in batch_encoding_b.items()}
+            
+            # Forward pass
+            embed_a, embed_b = model(batch_encoding_a, batch_encoding_b)
+            
+            # Interleave embeddings to match expected format
+            embeddings = torch.stack([embed_a, embed_b], dim=1).view(-1, embed_a.shape[-1])
+        else:
+            # Move batch encoding to device
+            batch_encoding = {k: v.to(device, non_blocking=True) for k, v in batch_encoding.items()}
+            
+            # Forward pass through BERT
+            # Note: BERT takes single sentences and produces single embeddings
+            # Unlike tree_matching which takes pairs and produces pairs
+            embeddings = model(**batch_encoding)
         
         # The embeddings are now in the same format expected by your loss functions
         # [batch_size, hidden_dim] with the indices corresponding to batch_info

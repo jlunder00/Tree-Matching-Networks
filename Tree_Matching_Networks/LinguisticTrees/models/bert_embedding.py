@@ -14,6 +14,7 @@ class BertEmbeddingNet(nn.Module):
         num_hidden_layers = config['model']['bert'].get('num_hidden_layers', 2)
         num_attention_heads = config['model']['bert'].get('num_attention_heads', 4)
         intermediate_size = config['model']['bert'].get('intermediate_size', 512)
+        max_position_embeddings = config['model']['bert'].get('max_position_embeddings', 512)
         
 
         actual_vocab_size = len(tokenizer.vocab)
@@ -30,7 +31,7 @@ class BertEmbeddingNet(nn.Module):
             num_hidden_layers=num_hidden_layers,
             num_attention_heads=num_attention_heads,
             intermediate_size=intermediate_size,
-            max_position_embeddings=512,  # Make this match your max_length
+            max_position_embeddings=max_position_embeddings,  # Make this match your max_length
         )
         
         # Initialize model from scratch with custom config
@@ -38,7 +39,7 @@ class BertEmbeddingNet(nn.Module):
         
         # Either include a projection or decide to use embeddings directly
         graph_rep_dim = config['model']['graph'].get('graph_rep_dim', 768)
-        if graph_rep_dim != hidden_size:
+        if graph_rep_dim != hidden_size and config['model']['bert']['project']:
             self.projection = nn.Linear(hidden_size, graph_rep_dim)
         else:
             self.projection = nn.Identity()

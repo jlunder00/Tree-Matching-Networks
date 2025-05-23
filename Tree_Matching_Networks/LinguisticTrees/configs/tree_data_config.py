@@ -21,7 +21,7 @@ class TreeDataConfig:
     task_type: Literal['entailment', 'similarity', 'info_nce', 'binary'] = 'entailment'
     
     # SpaCy model variant (trf, lg, sm)
-    spacy_variant: Literal['trf', 'lg', 'sm'] = 'trf'
+    spacy_variant: Literal['trf', 'lg', 'sm'] = 'sm'
     use_sharded_train: bool = True
     use_sharded_validate: bool = True
     use_sharded_test: bool = True
