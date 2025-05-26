@@ -10,35 +10,32 @@ model:
   name: bert_matching
   model_type: matching
   bert:
-    hidden_size: 256
+    hidden_size: 1024
     num_hidden_layers: 2
-    num_attention_heads: 4
+    num_attention_heads: 16
     intermediate_size: 1024
-    max_position_embeddings: 384
+    max_position_embeddings: 276
     tokenizer_path: /home/jlunder/temp_storage/tokenizers/bert-tokenizer10000_2/
     project: False
   graph:
     node_feature_dim: 804
     edge_feature_dim: 70
-    node_state_dim: 2048
+    node_state_dim: 1536
     edge_state_dim: 768
     #both edge and node hidden sizes will have a node_state_dim*2 or node_state_dim*3 layer appended in model definition. x3 or x2 is dependant on embedding vs matching type as is required
     edge_hidden_sizes: 
       - 768
       - 1024
-      - 1024
     node_hidden_sizes: 
       - 1536
       - 2048
-      - 2048
     
     # graph_rep_dim: 1792
-    graph_rep_dim: 4096
+    graph_rep_dim: 2048
     #graph_transform_sizes wil have graph_rep_dim appended on it
     graph_transform_sizes: 
       - 1536
       - 2048
-      - 4096
 
     edge_net_init_scale: 0.1
     reverse_dir_param_different: false
@@ -96,17 +93,17 @@ data:
     - amazonqa_multiple/Toys_and_Games
     - amazonqa_multiple/Video_Games
   allow_cross_dataset_negatives: true
-  batch_size: 384
+  batch_size: 200
   # batch_size: 16
   strict_matching: False
   pos_pairs_per_anchor: 1
   neg_pairs_per_anchor: 10
   min_groups_per_batch: 8
   anchors_per_group: 1
-  num_workers: 0
+  num_workers: 4
   positive_pairing_ratio: 1.0
   ensure_positives_in_batch: True
-  prefetch_factor: 0
+  prefetch_factor: 2
   max_batches_per_epoch: 100
   max_text_chars: 500
 

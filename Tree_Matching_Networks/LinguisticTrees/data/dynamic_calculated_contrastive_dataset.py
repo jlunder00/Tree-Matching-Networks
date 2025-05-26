@@ -447,7 +447,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
             print(f"{text}")
 
         
-        return {k: v for k, v in encoded.items()}
+        return {k: v.squeeze(0) for k, v in encoded.items()}
 
     def _tokenize_pair_separate(self, text_a: str, text_b: str) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
         """Tokenize a pair of texts separately for matching models."""

@@ -34,16 +34,16 @@ class BertMatchingNet(nn.Module):
         )
         
         self.bert = AutoModel.from_config(self.bert_config)
+        self.bert.gradient_checkpointing_enable()
         
         # Cross-attention layers
-        self.n_cross_layers = config['model']['bert'].get('n_cross_layers', 2)
-        self.cross_attention_layers = nn.ModuleList([
-            BertCrossAttentionLayer(hidden_size) for _ in range(self.n_cross_layers)
-        ])
+        self.cross_attention_layer = BertCrossAttentionLayer(hidden_size)
+        self.n_cross_layers = config['model']['graph'].get('n_prop_layers', 1)
         
         # Final projection
         graph_rep_dim = config['model']['graph'].get('graph_rep_dim', 768)
         self.projection = nn.Linear(hidden_size, graph_rep_dim)
+        # self.projection = nn.Identity()
     
     def forward(self, batch_encoding):
         """
@@ -71,14 +71,14 @@ class BertMatchingNet(nn.Module):
             raise ValueError(f"Batch size must be even for pair processing, got {batch_size}")
         
         # Split into pairs: (0,1), (2,3), (4,5), ...
-        n_pairs = batch_size // 2
+        # n_pairs = batch_size // 2
         
         # Apply cross-attention between adjacent pairs
-        for cross_layer in self.cross_attention_layers:
-            hidden_states = cross_layer(
+        for _ in range(self.n_cross_layers):
+            hidden_states = self.cross_attention_layer(
                 hidden_states, 
-                batch_encoding['attention_mask'],
-                n_pairs
+                batch_encoding['attention_mask']
+                # n_pairs
             )
         
         # Extract CLS tokens and project
@@ -88,57 +88,121 @@ class BertMatchingNet(nn.Module):
         return final_embeddings
 
 class BertCrossAttentionLayer(nn.Module):
-    """Cross-attention layer that works on adjacent pairs"""
+    """Cross-attention layer that mimics GMN cross-graph attention"""
     
     def __init__(self, hidden_size):
         super().__init__()
         self.hidden_size = hidden_size
-        self.attention = nn.MultiheadAttention(hidden_size, num_heads=8, batch_first=True)
+        self.attention = nn.MultiheadAttention(hidden_size, num_heads=16, batch_first=True)
         self.norm1 = nn.LayerNorm(hidden_size)
         self.norm2 = nn.LayerNorm(hidden_size)
         self.ffn = nn.Sequential(
             nn.Linear(hidden_size, hidden_size * 4),
             nn.ReLU(),
-            nn.Linear(hidden_size * 4, hidden_size)
+            # nn.Linear(hidden_size * 4, hidden_size * 4),
+            # nn.ReLU(),
+            nn.Linear(hidden_size * 4, hidden_size),
+            nn.Dropout(0.1)
         )
     
-    def forward(self, hidden_states, attention_mask, n_pairs):
+    def forward(self, hidden_states, attention_mask):
         """
-        Apply cross-attention between adjacent pairs
+        Apply cross-attention between adjacent pairs (GMN style)
         
         Args:
             hidden_states: [batch_size, seq_len, hidden_size]
             attention_mask: [batch_size, seq_len]
-            n_pairs: Number of pairs (batch_size // 2)
         """
-        seq_len = hidden_states.shape[1]
-        results = []
+        batch_size, seq_len, hidden_size = hidden_states.shape
+        n_pairs = batch_size // 2
         
-        for i in range(0, n_pairs * 2, 2):
-            # Get pair
+        # Process pairs: (0,1), (2,3), (4,5), etc.
+        updated_states = []
+        
+        for i in range(0, batch_size, 2):
+            # Get sequences A and B
             seq_a = hidden_states[i]      # [seq_len, hidden_size]
-            seq_b = hidden_states[i + 1]  # [seq_len, hidden_size]
+            seq_b = hidden_states[i + 1]  # [seq_len, hidden_size] 
             mask_a = attention_mask[i]    # [seq_len]
             mask_b = attention_mask[i + 1] # [seq_len]
             
-            # Cross-attention: A attends to B, B attends to A
-            attn_a, _ = self.attention(seq_a.unsqueeze(0), seq_b.unsqueeze(0), seq_b.unsqueeze(0),
-                                     key_padding_mask=~mask_b.bool())
-            attn_b, _ = self.attention(seq_b.unsqueeze(0), seq_a.unsqueeze(0), seq_a.unsqueeze(0),
-                                     key_padding_mask=~mask_a.bool())
+            # Cross-attention: A attends to B, B attends to A (GMN style)
+            # A queries B
+            attn_a, _ = self.attention(
+                seq_a.unsqueeze(0), seq_b.unsqueeze(0), seq_b.unsqueeze(0),
+                key_padding_mask=~mask_b.bool().unsqueeze(0)
+            )
+            # B queries A  
+            attn_b, _ = self.attention(
+                seq_b.unsqueeze(0), seq_a.unsqueeze(0), seq_a.unsqueeze(0),
+                key_padding_mask=~mask_a.bool().unsqueeze(0)
+            )
             
-            # Residual + norm
-            seq_a = self.norm1(seq_a + attn_a.squeeze(0))
-            seq_b = self.norm1(seq_b + attn_b.squeeze(0))
+            # Residual connections and normalization
+            seq_a_updated = self.norm1(seq_a + attn_a.squeeze(0))
+            seq_b_updated = self.norm1(seq_b + attn_b.squeeze(0))
             
-            # FFN
-            seq_a = self.norm2(seq_a + self.ffn(seq_a))
-            seq_b = self.norm2(seq_b + self.ffn(seq_b))
+            # Feed-forward networks
+            seq_a_final = self.norm2(seq_a_updated + self.ffn(seq_a_updated))
+            seq_b_final = self.norm2(seq_b_updated + self.ffn(seq_b_updated))
             
-            results.append(seq_a)
-            results.append(seq_b)
+            updated_states.extend([seq_a_final, seq_b_final])
         
-        return torch.stack(results)  # [batch_size, seq_len, hidden_size]
+        return torch.stack(updated_states)  # [batch_size, seq_len, hidden_size]
+
+
+# class BertCrossAttentionLayer(nn.Module):
+#     """Cross-attention layer that works on adjacent pairs"""
+#     
+#     def __init__(self, hidden_size):
+#         super().__init__()
+#         self.hidden_size = hidden_size
+#         self.attention = nn.MultiheadAttention(hidden_size, num_heads=8, batch_first=True)
+#         self.norm1 = nn.LayerNorm(hidden_size)
+#         self.norm2 = nn.LayerNorm(hidden_size)
+#         self.ffn = nn.Sequential(
+#             nn.Linear(hidden_size, hidden_size * 4),
+#             nn.ReLU(),
+#             nn.Linear(hidden_size * 4, hidden_size)
+#         )
+#     
+#     def forward(self, hidden_states, attention_mask, n_pairs):
+#         """
+#         Apply cross-attention between adjacent pairs
+#         
+#         Args:
+#             hidden_states: [batch_size, seq_len, hidden_size]
+#             attention_mask: [batch_size, seq_len]
+#             n_pairs: Number of pairs (batch_size // 2)
+#         """
+#         seq_len = hidden_states.shape[1]
+#         results = []
+#         
+#         for i in range(0, n_pairs * 2, 2):
+#             # Get pair
+#             seq_a = hidden_states[i]      # [seq_len, hidden_size]
+#             seq_b = hidden_states[i + 1]  # [seq_len, hidden_size]
+#             mask_a = attention_mask[i]    # [seq_len]
+#             mask_b = attention_mask[i + 1] # [seq_len]
+#             
+#             # Cross-attention: A attends to B, B attends to A
+#             attn_a, _ = self.attention(seq_a.unsqueeze(0), seq_b.unsqueeze(0), seq_b.unsqueeze(0),
+#                                      key_padding_mask=~mask_b.bool())
+#             attn_b, _ = self.attention(seq_b.unsqueeze(0), seq_a.unsqueeze(0), seq_a.unsqueeze(0),
+#                                      key_padding_mask=~mask_a.bool())
+#             
+#             # Residual + norm
+#             seq_a = self.norm1(seq_a + attn_a.squeeze(0))
+#             seq_b = self.norm1(seq_b + attn_b.squeeze(0))
+#             
+#             # FFN
+#             seq_a = self.norm2(seq_a + self.ffn(seq_a))
+#             seq_b = self.norm2(seq_b + self.ffn(seq_b))
+#             
+#             results.append(seq_a)
+#             results.append(seq_b)
+#         
+#         return torch.stack(results)  # [batch_size, seq_len, hidden_size]
 
 # class CrossAttentionLayer(nn.Module):
 #     """Cross-attention layer similar to graph matching attention"""
