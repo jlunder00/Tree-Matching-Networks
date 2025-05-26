@@ -20,28 +20,29 @@ logger = logging.getLogger(__name__)
 @torch.no_grad()
 def validate_step_bert(model, batch_encoding, batch_info, loss_fn, device, config):
     try:
-        if (isinstance(batch_encoding, tuple) or isinstance(batch_encoding, list)) and len(batch_encoding) == 2 and all(isinstance(x, dict) for x in batch_encoding):
+        # if (isinstance(batch_encoding, tuple) or isinstance(batch_encoding, list)) and len(batch_encoding) == 2 and all(isinstance(x, dict) for x in batch_encoding):
             # BERT Matching: tuple of (batch_encoding_a, batch_encoding_b)
-            batch_encoding_a, batch_encoding_b = batch_encoding
+            # batch_encoding_a, batch_encoding_b = batch_encoding
             
-            # Move to device
-            batch_encoding_a = {k: v.to(device, non_blocking=True) for k, v in batch_encoding_a.items()}
-            batch_encoding_b = {k: v.to(device, non_blocking=True) for k, v in batch_encoding_b.items()}
+        # Move to device
+        # batch_encoding_a = {k: v.to(device, non_blocking=True) for k, v in batch_encoding_a.items()}
+        batch_encoding = {k: v.to(device, non_blocking=True) for k, v in batch_encoding.items()}
+        
+        # Forward pass
+        # embed_a, embed_b = model(batch_encoding_a, batch_encoding_b)
+        embeddings = model(batch_encoding)
+        
+        # Interleave embeddings to match expected format
+        # embeddings = torch.stack([embed_a, embed_b], dim=1).view(-1, embed_a.shape[-1])
             
-            # Forward pass
-            embed_a, embed_b = model(batch_encoding_a, batch_encoding_b)
-            
-            # Interleave embeddings to match expected format
-            embeddings = torch.stack([embed_a, embed_b], dim=1).view(-1, embed_a.shape[-1])
-            
-        else:
-            # Move batch encoding to device
-            batch_encoding = {k: v.to(device, non_blocking=True) for k, v in batch_encoding.items()}
-            
-            # Forward pass through BERT
-            # Note: BERT takes single sentences and produces single embeddings
-            # Unlike tree_matching which takes pairs and produces pairs
-            embeddings = model(**batch_encoding)
+        # else:
+        #     # Move batch encoding to device
+        #     batch_encoding = {k: v.to(device, non_blocking=True) for k, v in batch_encoding.items()}
+        #     
+        #     # Forward pass through BERT
+        #     # Note: BERT takes single sentences and produces single embeddings
+        #     # Unlike tree_matching which takes pairs and produces pairs
+        #     embeddings = model(**batch_encoding)
         
         # The embeddings are now in the same format expected by your loss functions
         # [batch_size, hidden_dim] with the indices corresponding to batch_info
@@ -86,28 +87,30 @@ def validate_step_contrastive_graph(model, X, device):
 
 @torch.no_grad()
 def validate_step_contrastive_bert(model, X, device):
-    if (isinstance(X, tuple) or isinstance(X, list)) and len(X) == 2 and all(isinstance(x, dict) for x in X):
-        # BERT Matching: tuple of (X_a, X_b)
-        X_a, X_b = X
-        
-        # Move to device
-        X_a = {k: v.to(device, non_blocking=True) for k, v in X_a.items()}
-        X_b = {k: v.to(device, non_blocking=True) for k, v in X_b.items()}
-        
-        # Forward pass
-        embed_a, embed_b = model(X_a, X_b)
-        
-        # Interleave embeddings to match expected format
-        embeddings = torch.stack([embed_a, embed_b], dim=1).view(-1, embed_a.shape[-1])
-        
-    else:
-        # Move batch encoding to device
-        X = {k: v.to(device, non_blocking=True) for k, v in X.items()}
-        
-        # Forward pass through BERT
-        # Note: BERT takes single sentences and produces single embeddings
-        # Unlike tree_matching which takes pairs and produces pairs
-        embeddings = model(**X)
+    X = {k: v.to(device, non_blocking=True) for k, v in X.items()}
+    embeddings = model(X)
+    # if (isinstance(X, tuple) or isinstance(X, list)) and len(X) == 2 and all(isinstance(x, dict) for x in X):
+    #     # BERT Matching: tuple of (X_a, X_b)
+    #     X_a, X_b = X
+    #     
+    #     # Move to device
+    #     X_a = {k: v.to(device, non_blocking=True) for k, v in X_a.items()}
+    #     X_b = {k: v.to(device, non_blocking=True) for k, v in X_b.items()}
+    #     
+    #     # Forward pass
+    #     embed_a, embed_b = model(X_a, X_b)
+    #     
+    #     # Interleave embeddings to match expected format
+    #     embeddings = torch.stack([embed_a, embed_b], dim=1).view(-1, embed_a.shape[-1])
+    #     
+    # else:
+    #     # Move batch encoding to device
+    #     X = {k: v.to(device, non_blocking=True) for k, v in X.items()}
+    #     
+    #     # Forward pass through BERT
+    #     # Note: BERT takes single sentences and produces single embeddings
+    #     # Unlike tree_matching which takes pairs and produces pairs
+    #     embeddings = model(**X)
     return embeddings
     
 

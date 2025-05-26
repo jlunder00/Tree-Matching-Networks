@@ -93,7 +93,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
       1. Using the batch size (in terms of pairs) and pairing parameters, it computes:
            X = ceil(batch_size / (P+N))   # total anchors needed
            G = ceil(X / A)                 # number of groups required
-           R = A * (1 + P)                 # trees needed per group for positive pairing
+           R = A * (1 + P)                 # tralbuquerqueees needed per group for positive pairing
       2. The dataset maintains a buffer of groups (loaded from files) where each group is stored
          as a dict: { 'group_id': ..., 'group_idx': ..., 'trees': [tree_item, ...] }.
       3. When forming a batch, it selects G groups that have at least R trees. For each such group,
@@ -167,6 +167,10 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         self._batches_provided = 0
         self.allow_cross_dataset_negatives = allow_cross_dataset_negatives
         self.strict_matching = strict_matching
+        self.positive_pairing_ratio = config['data'].get('positive_pairing_ratio', 1.0)
+        self.ensure_positives_in_batch = config['data'].get("ensure_positives_in_batch", True)
+        if not 0.0 <= self.positive_pairing_ratio <= 1.0:
+            raise ValueError("positive_pairing_ratio must be between 0.0 and 1.0")
         
         self.allow_text_files = allow_text_files
         self.text_mode = text_mode
@@ -209,7 +213,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         for data_dir in self.data_dirs:
             json_files = list(data_dir.glob("part_*_shard_*.json"))
             txt_files = []
-            if self.allow_text_files:
+            if self.allow_text_files and self.text_mode:
                 txt_files = list(data_dir.glob("part_*_shard_*.txt"))
             files = sorted(
                 [f for f in json_files + txt_files
@@ -219,7 +223,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
             if not self.data_files:
                 json_files = list(data_dir.glob("part_*.json"))
                 txt_files = []
-                if self.allow_text_files:
+                if self.allow_text_files and self.text_mode:
                     txt_files = list(data_dir.glob("part_*.txt"))
                 self.data_files = sorted(json_files + txt_files)
             self.data_files.extend(files)
@@ -235,7 +239,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         
         # Load counts from _counts files (used only for __len__ estimation)
         self.file_counts = []
-        print(f"counting: {self.data_files}\n{len(self.data_files)}")
+        # print(f"counting: {self.data_files}\n{len(self.data_files)}")
         for file in self.data_files:
             count_file = file.parent / f"{file.stem}_counts.json"
             if file.suffix == '.txt':
@@ -248,7 +252,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
                 with open(count_file) as f:
                     self.file_counts.append(json.load(f))
             else:
-                print(f"shit its being loaded {file.suffix}")
+                # print(f"shit its being loaded {file.suffix}")
                 data = self._dataloader_handlers[file.suffix](file)
                 self.file_counts.append({
                     'n_groups': len(data.get('groups', [])),
@@ -257,8 +261,11 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
                     
         print("counting done")
         # # Initialize feature extractor if needed.
-        data = self._dataloader_handlers[file.suffix](self.data_files[0])
-        self.requires_embeddings = data.get('requires_word_embeddings', False) and not self.text_mode
+        data = self._dataloader_handlers[self.data_files[0].suffix](self.data_files[0])
+        print(self.text_mode)
+        print(data.get('requires_word_embeddings', f"no word embeddings???: {data}"))
+        self.requires_embeddings = not self.text_mode
+        # data.get('requires_word_embeddings', False) and not self.text_mode
         if self.requires_embeddings:
             feat_config = get_feature_config(config)
             self.embedding_extractor = FeatureExtractor(feat_config)
@@ -269,6 +276,14 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         self.file_queue = deque(self.data_files)
         self.active_files = deque(maxlen=self.max_active_files)
     
+
+    def get_pairing_ratio(self):
+        return self.positive_pairing_ratio
+
+    def set_pairing_ratio(self, r):
+        self.positive_pairing_ratio = r 
+
+
     def get_text_mode(self):
         return self.text_mode
 
@@ -584,6 +599,14 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
             # sampled = random.sample(neg_candidates, min(self.N, len(neg_candidates)))
             for neg_idx in neg_candidates:
                 negative_pairs.append((anchor_idx, neg_idx))
+
+
+        # NEW: Apply mixed pairing strategy to rearrange pairing
+        batch_trees, positive_pairs = self._apply_mixed_pairing_strategy(batch_trees, positive_pairs, anchor_indices)
+        
+        # Update anchor_indices to reflect new positions
+        old_to_new = {old_idx: new_idx for new_idx, (old_idx, tree) in enumerate(zip(range(len(batch_trees)), batch_trees))}
+        anchor_indices = [old_to_new.get(idx, idx) for idx in anchor_indices]
         
         batch_info = BatchInfo(
             group_indices=batch_group_indices,
@@ -601,39 +624,68 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         if self.text_mode:
             model_type = self.config['model'].get('model_type', 'embedding')
             if model_type == 'matching':
+                all_pair_info = []  # Track which indices form pairs
+                anchor_positive_indexes = {}
                 # For matching models, we need to tokenize pairs separately
                 # Collect pairs based on the batch structure
-                text_pairs = []
+                text_list = []
                 
                 # Create pairs from batch_trees based on positive pairs
-                for anchor_idx, pos_idx in positive_pairs:
-                    text_a = batch_trees[anchor_idx].get('text', '')
-                    text_b = batch_trees[pos_idx].get('text', '')
-                    text_pairs.append((text_a, text_b))
+                for pair_idx, (anchor_idx, pos_idx) in enumerate(positive_pairs):
+                    text_a = batch_trees[pair_idx*2].get('text', '')
+                    text_b = batch_trees[pair_idx*2+1].get('text', '')
+                    all_pair_info.append((anchor_idx, pos_idx, True))
+                    text_list.extend([text_a, text_b])
+                    if anchor_idx in anchor_positive_indexes.keys():
+                        anchor_positive_indexes[anchor_idx].append(pair_idx)
+                    else:
+                        anchor_positive_indexes[anchor_idx] = [pair_idx]
+
+                if batch_info.strict_matching:
+                    anchor_negative_indexes = {}
+                    for pair_idx, (anchor_idx, neg_idx) in enumerate(batch_info.negative_pairs):
+                        text_a, text_b = batch_trees[anchor_idx].get('text', ''), batch_trees[neg_idx].get('text', '')
+                        text_list.extend([text_a, text_b])
+                        all_pair_info.append(((pair_idx+len(batch_info.positive_pairs)) * 2, (pair_idx+len(batch_info.positive_pairs)) * 2 + 1, False))  # False = negative pair
+                        if anchor_idx in anchor_negative_indexes.keys():
+                            anchor_negative_indexes[anchor_idx].append(pair_idx)
+                        else:
+                            anchor_negative_indexes[anchor_idx] = [pair_idx]
+
+                    batch_info.anchor_negative_indexes = anchor_negative_indexes
                 
-                # Tokenize all pairs separately
-                batch_encoding_a_list = []
-                batch_encoding_b_list = []
                 
-                for text_a, text_b in text_pairs:
-                    encoding_a, encoding_b = self._tokenize_pair_separate(text_a, text_b)
-                    batch_encoding_a_list.append(encoding_a)
-                    batch_encoding_b_list.append(encoding_b)
-                
-                if batch_encoding_a_list:
-                    batch_encoding_a = {k: torch.stack([enc[k] for enc in batch_encoding_a_list]) 
-                                       for k in batch_encoding_a_list[0].keys()}
-                    batch_encoding_b = {k: torch.stack([enc[k] for enc in batch_encoding_b_list]) 
-                                       for k in batch_encoding_b_list[0].keys()}
-                    output = (batch_encoding_a, batch_encoding_b)
+                text_encodings = []
+
+                for text in text_list:
+                    encoding = self._tokenize_text(text)
+                    text_encodings.append(encoding)
+
+                # for text_a, text_b in text_pairs:
+                #     encoding_a, encoding_b = self._tokenize_pair_separate(text_a, text_b)
+                #     batch_encoding_a_list.append(encoding_a)
+                #     batch_encoding_b_list.append(encoding_b)
+                # 
+                # if batch_encoding_a_list:
+                #     batch_encoding_a = {k: torch.stack([enc[k] for enc in batch_encoding_a_list]) 
+                #                        for k in batch_encoding_a_list[0].keys()}
+                #     batch_encoding_b = {k: torch.stack([enc[k] for enc in batch_encoding_b_list]) 
+                #                        for k in batch_encoding_b_list[0].keys()}
+                #     output = (batch_encoding_a, batch_encoding_b)
+                if text_encodings:
+                    batch_encoding = {k: torch.stack([enc[k] for enc in text_encodings]) 
+                         for k in text_encodings[0].keys()}
+                    output = batch_encoding
                 else:
                     # Empty batch fallback
-                    empty_encoding = {
+                    output = {
                         'input_ids': torch.zeros((0, self.max_length), dtype=torch.long),
                         'attention_mask': torch.zeros((0, self.max_length), dtype=torch.long),
                         'token_type_ids': torch.zeros((0, self.max_length), dtype=torch.long)
                     }
-                    output = (empty_encoding, empty_encoding)
+
+                batch_info.pair_indices = all_pair_info
+                batch_info.anchor_positive_indexes = anchor_positive_indexes
             else:
 
                 text_inputs = [self._tokenize_text(tree.get('text', '')) for tree in batch_trees]
@@ -660,11 +712,13 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
                 
                 # Add positive pairs
                 for pair_idx, (tree_idx1, tree_idx2) in enumerate(batch_info.positive_pairs):
-                    tree1, tree2 = copy.deepcopy(batch_trees[tree_idx1]['tree']), copy.deepcopy(batch_trees[tree_idx2]['tree'])
+                    # tree1, tree2 = copy.deepcopy(batch_trees[tree_idx1]['tree']), copy.deepcopy(batch_trees[tree_idx2]['tree'])
+                    tree1, tree2 = copy.deepcopy(batch_trees[pair_idx*2]['tree']), copy.deepcopy(batch_trees[pair_idx*2+1]['tree'])
                     # We need a deep copy if the same tree appears multiple times
                     all_batch_graphs.append(convert_tree_to_graph_data([tree1, tree2]))
                     # Record these will be paired with graph_idx [2i, 2i+1]
-                    all_pair_info.append((pair_idx * 2, pair_idx * 2 + 1, True))  # True = positive pair
+                    # all_pair_info.append((pair_idx * 2, pair_idx * 2 + 1, True))  # True = positive pair
+                    all_pair_info.append((tree_idx1, tree_idx2, True))  # True = positive pair
                     if tree_idx1 in anchor_positive_indexes.keys():
                         anchor_positive_indexes[tree_idx1].append(pair_idx)
                     else:
@@ -679,7 +733,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
                         # We need a deep copy if the same tree appears multiple times
                         all_batch_graphs.append(convert_tree_to_graph_data([tree1, tree2]))
                         # Record these will be paired with graph_idx [2i, 2i+1]
-                        all_pair_info.append((pair_idx * 2, pair_idx * 2 + 1, False))  # False = negative pair
+                        all_pair_info.append(((pair_idx+len(batch_info.positive_pairs)) * 2, (pair_idx+len(batch_info.positive_pairs)) * 2 + 1, False))  # False = negative pair
                         if tree_idx1 in anchor_negative_indexes.keys():
                             anchor_negative_indexes[tree_idx1].append(pair_idx)
                         else:
@@ -696,6 +750,74 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
             output = self.collate_graphs(all_batch_graphs)
 
         return output, batch_info
+
+    def _apply_mixed_pairing_strategy(self, batch_trees, positive_pairs, anchor_indices):
+        """
+        Shift only a proportion of positive items to create loose pairs based on ratio.
+        
+        Args:
+            batch_trees: List alternating [anchor_0, pos_0, anchor_1, pos_1, ...]
+            positive_pairs: List of (anchor_idx, pos_idx) tuples
+            anchor_indices: List of anchor indices [0, 2, 4, 6, ...]
+        
+        Returns:
+            rearranged_trees: Reordered batch_trees  
+            updated_positive_pairs: Updated positive pairs
+        """
+        if self.positive_pairing_ratio >= 1.0:
+            return batch_trees, positive_pairs
+        
+        total_pairs = len(positive_pairs)
+        num_direct_pairs = int(total_pairs * self.positive_pairing_ratio)
+        num_loose_pairs = total_pairs - num_direct_pairs
+        
+        if num_loose_pairs == 0:
+            return batch_trees, positive_pairs
+        
+        # Randomly choose which pairs remain direct (adjacent)
+        direct_pair_indices = set(random.sample(range(total_pairs), num_direct_pairs))
+        
+        # Collect positive items that need to be shifted (for loose pairs)
+        loose_positive_items = []
+        loose_positive_positions = []  # Their current positions in batch_trees
+        
+        for i, (anchor_idx, pos_idx) in enumerate(positive_pairs):
+            if i not in direct_pair_indices:  # This pair should become loose
+                loose_positive_items.append(batch_trees[pos_idx])
+                loose_positive_positions.append(pos_idx)
+        
+        if not loose_positive_items:
+            return batch_trees, positive_pairs
+        
+        # Shift the loose positive items with wrapping
+        shift_amount = random.randint(1, len(loose_positive_items)) if len(loose_positive_items) > 1 else 1
+        shifted_items = loose_positive_items[-shift_amount:] + loose_positive_items[:-shift_amount]
+        
+        # Create new batch with shifted items
+        new_batch_trees = batch_trees.copy()
+        for i, new_item in enumerate(shifted_items):
+            target_position = loose_positive_positions[i]
+            new_batch_trees[target_position] = new_item
+        
+        # Update positive_pairs - need to track where each shifted item ended up
+        updated_positive_pairs = []
+        
+        for i, (anchor_idx, pos_idx) in enumerate(positive_pairs):
+            if i in direct_pair_indices:
+                # Direct pair stays unchanged
+                updated_positive_pairs.append((anchor_idx, pos_idx))
+            else:
+                # Loose pair - find where this positive item moved to
+                original_item = batch_trees[pos_idx]
+                
+                # Find the new position of this item after shifting
+                original_loose_index = loose_positive_positions.index(pos_idx)
+                new_loose_index = (original_loose_index + shift_amount) % len(loose_positive_items)
+                new_pos_idx = loose_positive_positions[new_loose_index]
+                
+                updated_positive_pairs.append((anchor_idx, new_pos_idx))
+        
+        return new_batch_trees, updated_positive_pairs
 
     def collate_graphs(self, graphs):
         from_idx = []
@@ -752,8 +874,9 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
     def __len__(self):
         """A rough length estimate (number of pairs) based on counts."""
         total_trees = sum(sum(fc['trees_per_group']) for fc in self.file_counts)
+        print(total_trees)
         worker_info = get_worker_info()
-        mult = 14
+        mult = 6
         if worker_info is not None:
             mult = worker_info.num_workers
         
