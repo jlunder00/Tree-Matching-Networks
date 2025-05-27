@@ -37,7 +37,8 @@ class BertMatchingNet(nn.Module):
         self.bert.gradient_checkpointing_enable()
         
         # Cross-attention layers
-        self.cross_attention_layer = BertCrossAttentionLayer(hidden_size)
+        # self.cross_attention_layer = BertCrossAttentionLayer(hidden_size)
+        self.cross_attention_layer = BertGMNStyleCrossAttention(similarity='dotproduct')
         self.n_cross_layers = config['model']['graph'].get('n_prop_layers', 1)
         
         # Final projection
@@ -86,6 +87,65 @@ class BertMatchingNet(nn.Module):
         final_embeddings = self.projection(cls_embeddings)
         
         return final_embeddings
+
+class BertGMNStyleCrossAttention(nn.Module):
+    """GMN-style cross-attention with NO learnable parameters"""
+    
+    def __init__(self, similarity='dotproduct'):
+        super().__init__()
+        self.similarity = similarity
+        
+    def get_similarity_fn(self):
+        if self.similarity == 'dotproduct':
+            return lambda x, y: torch.mm(x, y.transpose(-2, -1))
+        elif self.similarity == 'cosine':
+            return lambda x, y: F.cosine_similarity(x.unsqueeze(1), y.unsqueeze(0), dim=-1)
+        # Add other similarity functions as needed
+        
+    def forward(self, hidden_states, attention_mask):
+        """
+        GMN-style cross-attention between adjacent pairs
+        NO learnable parameters - just similarity + softmax
+        """
+        batch_size, seq_len, hidden_size = hidden_states.shape
+        sim_fn = self.get_similarity_fn()
+        
+        updated_states = []
+        
+        for i in range(0, batch_size, 2):
+            seq_a = hidden_states[i]      # [seq_len, hidden_size]
+            seq_b = hidden_states[i + 1]  # [seq_len, hidden_size]
+            mask_a = attention_mask[i]    # [seq_len] 
+            mask_b = attention_mask[i + 1] # [seq_len]
+            
+            # GMN-style cross-attention (NO learned parameters)
+            # A attends to B
+            sim_ab = sim_fn(seq_a, seq_b)  # [seq_len_a, seq_len_b]
+            
+            # Apply padding masks
+            if mask_b is not None:
+                sim_ab = sim_ab.masked_fill(~mask_b.bool().unsqueeze(0), -float('inf'))
+            
+            attn_weights_ab = F.softmax(sim_ab, dim=-1)  # A -> B weights
+            attended_a = torch.mm(attn_weights_ab, seq_b)  # Weighted sum of B for A
+            
+            # B attends to A  
+            sim_ba = sim_fn(seq_b, seq_a)  # [seq_len_b, seq_len_a]
+            
+            if mask_a is not None:
+                sim_ba = sim_ba.masked_fill(~mask_a.bool().unsqueeze(0), -float('inf'))
+                
+            attn_weights_ba = F.softmax(sim_ba, dim=-1)  # B -> A weights
+            attended_b = torch.mm(attn_weights_ba, seq_a)  # Weighted sum of A for B
+            
+            # Simple residual (like GMN) - NO layer norms or FFN
+            updated_a = seq_a + attended_a
+            updated_b = seq_b + attended_b
+            
+            updated_states.extend([updated_a, updated_b])
+        
+        return torch.stack(updated_states)
+
 
 class BertCrossAttentionLayer(nn.Module):
     """Cross-attention layer that mimics GMN cross-graph attention"""

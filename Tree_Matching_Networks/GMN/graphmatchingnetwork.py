@@ -279,3 +279,87 @@ class GraphMatchingNet(GraphEmbeddingNet):
         """Apply one layer on the given inputs."""
         return layer(node_states, from_idx, to_idx, graph_idx, n_graphs,
                      similarity=self._similarity, edge_features=edge_features)
+
+class AttentionGraphMatchingNet(GraphMatchingNet):
+    """Graph matching network with optional attention mechanisms"""
+    
+    def __init__(self, encoder, aggregator, node_state_dim, edge_state_dim,
+                 edge_hidden_sizes, node_hidden_sizes, n_prop_layers,
+                 share_prop_params=False, edge_net_init_scale=0.1, node_update_type='residual',
+                 use_reverse_direction=True, reverse_dir_param_different=True, layer_norm=False,
+                 layer_class=None, similarity='dotproduct', prop_type='matching',
+                 # New attention parameters
+                 use_message_attention=False, use_aggregation_attention=False,  
+                 use_node_update_attention=False, use_graph_attention=False,
+                 attention_heads=4):
+        
+        from .attention_layers import AttentionGraphPropLayer
+        from .attention_utils import AttentionGraphAggregator
+        
+        # Set up attention layer class
+        if (use_message_attention or use_aggregation_attention or use_node_update_attention):
+            # Create attention-enabled matching layer
+            class AttentionGraphPropMatchingLayer(AttentionGraphPropLayer):
+                def forward(self, node_states, from_idx, to_idx, graph_idx, n_graphs,
+                           similarity='dotproduct', edge_features=None, node_features=None):
+                    # First do standard attention-based propagation
+                    aggregated_messages = self._compute_aggregated_messages(
+                        node_states, from_idx, to_idx, edge_features=edge_features
+                    )
+                    
+                    # Then add cross-graph attention (GMN style)
+                    cross_graph_attention = batch_block_pair_attention(
+                        node_states, graph_idx, n_graphs, similarity=similarity
+                    )
+                    attention_input = node_states - cross_graph_attention
+                    
+                    return self._compute_node_update(
+                        node_states, [aggregated_messages, attention_input], 
+                        node_features=node_features
+                    )
+            
+            layer_class = AttentionGraphPropMatchingLayer
+        else:
+            from .graphmatchingnetwork import GraphPropMatchingLayer
+            layer_class = GraphPropMatchingLayer
+            
+        # Store attention config  
+        self.attention_config = {
+            'use_message_attention': use_message_attention,
+            'use_aggregation_attention': use_aggregation_attention,
+            'use_node_update_attention': use_node_update_attention, 
+            'attention_heads': attention_heads
+        }
+        
+        # Initialize parent
+        super(GraphMatchingNet, self).__init__(
+            encoder, aggregator, node_state_dim, edge_state_dim, edge_hidden_sizes,
+            node_hidden_sizes, n_prop_layers, share_prop_params, edge_net_init_scale,
+            node_update_type, use_reverse_direction, reverse_dir_param_different,
+            layer_norm, layer_class, prop_type
+        )
+        
+        self._similarity = similarity
+        
+        # Replace aggregator with attention version if requested
+        if use_graph_attention:
+            graph_rep_dim = aggregator._graph_state_dim  
+            self._aggregator = AttentionGraphAggregator(
+                node_dim=node_state_dim,
+                graph_dim=graph_rep_dim, 
+                num_heads=attention_heads,
+                use_attention=True
+            )
+
+    def _build_layer(self, layer_id):
+        """Build attention-enabled matching layer"""
+        if hasattr(self._layer_class, '__name__') and 'Attention' in self._layer_class.__name__:
+            return self._layer_class(
+                self._node_state_dim, self._edge_state_dim, self._edge_hidden_sizes,
+                self._node_hidden_sizes, edge_net_init_scale=self._edge_net_init_scale,
+                node_update_type=self._node_update_type, use_reverse_direction=self._use_reverse_direction,
+                reverse_dir_param_different=self._reverse_dir_param_different, layer_norm=self._layer_norm,
+                prop_type=self._prop_type, **self.attention_config
+            )
+        else:
+            return super()._build_layer(layer_id)

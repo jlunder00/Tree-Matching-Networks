@@ -11,11 +11,11 @@ model:
   model_type: matching
   bert:
     hidden_size: 1024
-    num_hidden_layers: 2
+    num_hidden_layers: 4
     num_attention_heads: 16
-    intermediate_size: 1024
-    max_position_embeddings: 276
-    tokenizer_path: /home/jlunder/temp_storage/tokenizers/bert-tokenizer10000_2/
+    intermediate_size: 2048
+    max_position_embeddings: 384
+    tokenizer_path: /home/jlunder/temp_storage/tokenizers/bert-tokenizer5000_5/
     project: False
   graph:
     node_feature_dim: 804
@@ -28,14 +28,14 @@ model:
       - 1024
     node_hidden_sizes: 
       - 1536
-      - 2048
+      - 1536
     
     # graph_rep_dim: 1792
     graph_rep_dim: 2048
     #graph_transform_sizes wil have graph_rep_dim appended on it
     graph_transform_sizes: 
       - 1536
-      - 2048
+      - 1536
 
     edge_net_init_scale: 0.1
     reverse_dir_param_different: false
@@ -93,7 +93,7 @@ data:
     - amazonqa_multiple/Toys_and_Games
     - amazonqa_multiple/Video_Games
   allow_cross_dataset_negatives: true
-  batch_size: 200
+  batch_size: 384
   # batch_size: 16
   strict_matching: False
   pos_pairs_per_anchor: 1

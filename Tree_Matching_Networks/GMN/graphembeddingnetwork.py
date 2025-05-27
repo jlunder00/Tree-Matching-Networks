@@ -604,3 +604,63 @@ class GraphEmbeddingNet(nn.Module):
             return self._layer_outputs
         else:
             raise ValueError('No layer outputs available.')
+
+class AttentionGraphEmbeddingNet(GraphEmbeddingNet):
+    """Graph embedding network with optional attention mechanisms"""
+    
+    def __init__(self, encoder, aggregator, node_state_dim, edge_state_dim, 
+                 edge_hidden_sizes, node_hidden_sizes, n_prop_layers,
+                 share_prop_params=False, edge_net_init_scale=0.1, node_update_type='residual',
+                 use_reverse_direction=True, reverse_dir_param_different=True, layer_norm=False,
+                 layer_class=None, prop_type='embedding',
+                 # New attention parameters  
+                 use_message_attention=False, use_aggregation_attention=False,
+                 use_node_update_attention=False, use_graph_attention=False,
+                 attention_heads=4, name='attention-graph-embedding-net'):
+        
+        # Import here to avoid circular imports
+        from .attention_layers import AttentionGraphPropLayer
+        from .attention_utils import AttentionGraphAggregator
+        
+        # Set default layer class to attention version if any attention is enabled
+        if (use_message_attention or use_aggregation_attention or use_node_update_attention) and layer_class is None:
+            layer_class = AttentionGraphPropLayer
+            
+        # Store attention config
+        self.attention_config = {
+            'use_message_attention': use_message_attention,
+            'use_aggregation_attention': use_aggregation_attention, 
+            'use_node_update_attention': use_node_update_attention,
+            'attention_heads': attention_heads
+        }
+        
+        # Initialize parent
+        super().__init__(
+            encoder, aggregator, node_state_dim, edge_state_dim, edge_hidden_sizes,
+            node_hidden_sizes, n_prop_layers, share_prop_params, edge_net_init_scale,
+            node_update_type, use_reverse_direction, reverse_dir_param_different,
+            layer_norm, layer_class, prop_type
+        )
+        
+        # Replace aggregator with attention version if requested
+        if use_graph_attention:
+            graph_rep_dim = aggregator._graph_state_dim
+            self._aggregator = AttentionGraphAggregator(
+                node_dim=node_state_dim,
+                graph_dim=graph_rep_dim,
+                num_heads=attention_heads,
+                use_attention=True
+            )
+
+    def _build_layer(self, layer_id):
+        """Build attention-enabled layer if using attention"""
+        if hasattr(self._layer_class, '__name__') and 'Attention' in self._layer_class.__name__:
+            return self._layer_class(
+                self._node_state_dim, self._edge_state_dim, self._edge_hidden_sizes,
+                self._node_hidden_sizes, edge_net_init_scale=self._edge_net_init_scale,
+                node_update_type=self._node_update_type, use_reverse_direction=self._use_reverse_direction,
+                reverse_dir_param_different=self._reverse_dir_param_different, layer_norm=self._layer_norm,
+                prop_type=self._prop_type, **self.attention_config
+            )
+        else:
+            return super()._build_layer(layer_id)

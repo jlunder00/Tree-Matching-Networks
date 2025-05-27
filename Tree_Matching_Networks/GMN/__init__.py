@@ -1,2 +1,2 @@
-from .graphmatchingnetwork import GraphMatchingNet
+from .graphmatchingnetwork import GraphMatchingNet, AttentionGraphMatchingNet
 from .graphembeddingnetwork import GraphEmbeddingNet, GraphEncoder
