@@ -100,7 +100,7 @@ data:
   neg_pairs_per_anchor: 10
   min_groups_per_batch: 8
   anchors_per_group: 1
-  num_workers: 4
+  num_workers: 2
   positive_pairing_ratio: 1.0
   ensure_positives_in_batch: True
   prefetch_factor: 2

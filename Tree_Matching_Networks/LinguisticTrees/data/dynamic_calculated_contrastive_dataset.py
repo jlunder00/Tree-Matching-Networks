@@ -765,10 +765,18 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
             updated_positive_pairs: Updated positive pairs
         """
         if self.positive_pairing_ratio >= 1.0:
+            # print("using 1.0")
             return batch_trees, positive_pairs
+
+        if self.positive_pairing_ratio < 0.0: # use random pairing ratio for this batch
+            r = random.uniform(0, 1)
+        else:
+            r = self.positive_pairing_ratio
+            
+        # print(f"using {r}")
         
         total_pairs = len(positive_pairs)
-        num_direct_pairs = int(total_pairs * self.positive_pairing_ratio)
+        num_direct_pairs = int(total_pairs * r)
         num_loose_pairs = total_pairs - num_direct_pairs
         
         if num_loose_pairs == 0:
