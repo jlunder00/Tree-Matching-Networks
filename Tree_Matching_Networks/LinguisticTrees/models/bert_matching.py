@@ -38,13 +38,90 @@ class BertMatchingNet(nn.Module):
         
         # Cross-attention layers
         # self.cross_attention_layer = BertCrossAttentionLayer(hidden_size)
-        self.cross_attention_layer = BertGMNStyleCrossAttention(similarity='dotproduct')
-        self.n_cross_layers = config['model']['graph'].get('n_prop_layers', 1)
+        self.n_cross_layers = num_hidden_layers
+        if self.n_cross_layers > 0:
+            # Determine which BERT layers to insert cross-attention after
+            self.cross_attention_positions = self._get_cross_attention_positions(num_hidden_layers)
+            
+            # Create cross-attention layers (no learnable parameters - pure GMN style)
+            self.cross_attention_layers = nn.ModuleList([
+                # MemoryEfficientCrossAttention(similarity='dotproduct') 
+                BertGMNStyleCrossAttention(similarity='dotproduct') 
+                for _ in range(len(self.cross_attention_positions))
+            ])
         
         # Final projection
         graph_rep_dim = config['model']['graph'].get('graph_rep_dim', 768)
         self.projection = nn.Linear(hidden_size, graph_rep_dim)
         # self.projection = nn.Identity()
+
+    def _get_cross_attention_positions(self, num_layers):
+        """Determine after which BERT layers to insert cross-attention"""
+        if self.n_cross_layers == 0:
+            return []
+        elif self.n_cross_layers >= num_layers:
+            return list(range(num_layers))
+        else:
+            # Distribute evenly through the layers
+            step = num_layers / self.n_cross_layers
+            return [int(i * step) for i in range(1, self.n_cross_layers + 1)]
+
+    # def forward(self, batch_encoding):
+    #     batch_size = batch_encoding['input_ids'].shape[0]
+    #     if batch_size % 2 != 0:
+    #         raise ValueError(f"Batch size must be even for pair processing, got {batch_size}")
+    #     
+    #     if self.n_cross_layers == 0:
+    #         # Pure BERT
+    #         outputs = self.bert(**batch_encoding)
+    #         return self.projection(outputs.last_hidden_state[:, 0])
+    #     
+    #     # Use gradient checkpointing for the entire sequence
+    #     return torch.utils.checkpoint.checkpoint(
+    #         self._forward_with_cross_attention,
+    #         batch_encoding,
+    #         use_reentrant=False
+    #     )
+    # 
+    # def _forward_with_cross_attention(self, batch_encoding):
+    #     """Checkpointed forward pass"""
+    #     hidden_states = self.bert.embeddings(
+    #         input_ids=batch_encoding['input_ids'],
+    #         token_type_ids=batch_encoding.get('token_type_ids', None)
+    #     )
+    #     
+    #     attention_mask = batch_encoding['attention_mask']
+    #     extended_attention_mask = self.bert.get_extended_attention_mask(
+    #         attention_mask, batch_encoding['input_ids'].shape
+    #     )
+    #     
+    #     cross_attn_idx = 0
+    #     
+    #     for i, layer in enumerate(self.bert.encoder.layer):
+    #         # Use gradient checkpointing for each BERT layer
+    #         layer_outputs = torch.utils.checkpoint.checkpoint(
+    #             layer,
+    #             hidden_states,
+    #             extended_attention_mask,
+    #             use_reentrant=False
+    #         )
+
+    #         if isinstance(layer_outputs, tuple):
+    #             hidden_states = layer_outputs[0]
+    #         else:
+    #             hidden_states = layer_outputs
+    #         
+    #         # Apply cross-attention with memory efficiency
+    #         if i in self.cross_attention_positions and cross_attn_idx < len(self.cross_attention_layers):
+    #             # hidden_states = torch.utils.checkpoint.checkpoint(
+    #             #     self.cross_attention_layers[cross_attn_idx],
+    #             #     hidden_states,
+    #             #     attention_mask,
+    #             #     use_reentrant=False
+    #             # )
+    #             cross_attn_idx += 1
+    #     
+    #     return self.projection(hidden_states[:, 0])
     
     def forward(self, batch_encoding):
         """
@@ -57,36 +134,149 @@ class BertMatchingNet(nn.Module):
         Returns:
             Tensor of embeddings [n_pairs*2, hidden_dim]
         """
-        # Get BERT embeddings for all sequences
-        outputs = self.bert(
-            input_ids=batch_encoding['input_ids'],
-            attention_mask=batch_encoding['attention_mask'],
-            token_type_ids=batch_encoding.get('token_type_ids', None)
-        )
-        
-        hidden_states = outputs.last_hidden_state  # [batch_size, seq_len, hidden_size]
-        batch_size = hidden_states.shape[0]
-        
-        # Ensure even batch size for pairing
+        batch_size = batch_encoding['input_ids'].shape[0]
         if batch_size % 2 != 0:
             raise ValueError(f"Batch size must be even for pair processing, got {batch_size}")
         
-        # Split into pairs: (0,1), (2,3), (4,5), ...
-        # n_pairs = batch_size // 2
-        
-        # Apply cross-attention between adjacent pairs
-        for _ in range(self.n_cross_layers):
-            hidden_states = self.cross_attention_layer(
-                hidden_states, 
-                batch_encoding['attention_mask']
-                # n_pairs
+        if self.n_cross_layers == 0:
+            # Pure BERT - no cross-attention
+            outputs = self.bert(
+                input_ids=batch_encoding['input_ids'],
+                attention_mask=batch_encoding['attention_mask'],
+                token_type_ids=batch_encoding.get('token_type_ids', None)
             )
+            cls_embeddings = outputs.last_hidden_state[:, 0]
+            return self.projection(cls_embeddings)
+        
+        # Manual forward pass with interleaved cross-attention
+        # Get embeddings
+        hidden_states = self.bert.embeddings(
+            input_ids=batch_encoding['input_ids'],
+            token_type_ids=batch_encoding.get('token_type_ids', None)
+        )
+        
+        attention_mask = batch_encoding['attention_mask']
+        # Convert attention mask to the format BERT expects
+        extended_attention_mask = self.bert.get_extended_attention_mask(
+            attention_mask, batch_encoding['input_ids'].shape
+        )
+        
+        cross_attn_idx = 0
+        
+        # Process through BERT layers with interleaved cross-attention
+        for i, layer in enumerate(self.bert.encoder.layer):
+            # Apply BERT layer
+            layer_outputs = torch.utils.checkpoint.checkpoint(
+                layer,
+                hidden_states,
+                extended_attention_mask
+            )
+            hidden_states = layer_outputs[0]
+            
+            # Apply cross-attention if this is a designated position
+            if i in self.cross_attention_positions and cross_attn_idx < len(self.cross_attention_layers):
+                hidden_states = self.cross_attention_layers[cross_attn_idx](
+                    hidden_states, 
+                    attention_mask  # Use original mask for cross-attention
+                )
+                cross_attn_idx += 1
         
         # Extract CLS tokens and project
-        cls_embeddings = hidden_states[:, 0]  # [batch_size, hidden_size]
-        final_embeddings = self.projection(cls_embeddings)
+        cls_embeddings = hidden_states[:, 0]
+        return self.projection(cls_embeddings)
+        # # Get BERT embeddings for all sequences
+        # outputs = self.bert(
+        #     input_ids=batch_encoding['input_ids'],
+        #     attention_mask=batch_encoding['attention_mask'],
+        #     token_type_ids=batch_encoding.get('token_type_ids', None)
+        # )
+        # 
+        # hidden_states = outputs.last_hidden_state  # [batch_size, seq_len, hidden_size]
+        # batch_size = hidden_states.shape[0]
+        # 
+        # # Ensure even batch size for pairing
+        # if batch_size % 2 != 0:
+        #     raise ValueError(f"Batch size must be even for pair processing, got {batch_size}")
+        # 
+        # # Split into pairs: (0,1), (2,3), (4,5), ...
+        # # n_pairs = batch_size // 2
+        # 
+        # # Apply cross-attention between adjacent pairs
+        # for _ in range(self.n_cross_layers):
+        #     hidden_states = self.cross_attention_layer(
+        #         hidden_states, 
+        #         batch_encoding['attention_mask']
+        #         # n_pairs
+        #     )
+        # 
+        # # Extract CLS tokens and project
+        # cls_embeddings = hidden_states[:, 0]  # [batch_size, hidden_size]
+        # final_embeddings = self.projection(cls_embeddings)
+        # 
+        # return final_embeddings
+
+class MemoryEfficientCrossAttention(nn.Module):
+    """Memory-efficient cross-attention with chunked processing"""
+    
+    def __init__(self, similarity='dotproduct', chunk_size=64):
+        super().__init__()
+        self.similarity = similarity
+        self.chunk_size = chunk_size  # Process attention in chunks
+    
+    def forward(self, hidden_states, attention_mask):
+        batch_size, seq_len, hidden_size = hidden_states.shape
         
-        return final_embeddings
+        # Process pairs in-place to save memory
+        for i in range(0, batch_size, 2):
+            seq_a = hidden_states[i]
+            seq_b = hidden_states[i + 1]
+            mask_a = attention_mask[i]
+            mask_b = attention_mask[i + 1]
+            
+            # Chunked attention computation to reduce memory
+            attended_a = self._chunked_attention(seq_a, seq_b, mask_b)
+            attended_b = self._chunked_attention(seq_b, seq_a, mask_a)
+            
+            # In-place update to save memory
+            hidden_states[i] += attended_a
+            hidden_states[i + 1] += attended_b
+        
+        return hidden_states
+    
+    def _chunked_attention(self, query_seq, key_seq, key_mask):
+        """Compute attention in chunks to reduce memory usage"""
+        seq_len, hidden_size = query_seq.shape
+        attended_output = torch.zeros_like(query_seq)
+        
+        # Process in chunks
+        for start in range(0, seq_len, self.chunk_size):
+            end = min(start + self.chunk_size, seq_len)
+            query_chunk = query_seq[start:end]
+            
+            # Compute similarity for this chunk
+            if self.similarity == 'dotproduct':
+                sim_chunk = torch.mm(query_chunk, key_seq.transpose(0, 1))
+            elif self.similarity == 'cosine':
+                sim_chunk = F.cosine_similarity(
+                    query_chunk.unsqueeze(1), 
+                    key_seq.unsqueeze(0), 
+                    dim=-1
+                )
+            
+            # Apply mask
+            if key_mask is not None:
+                sim_chunk = sim_chunk.masked_fill(~key_mask.bool().unsqueeze(0), -float('inf'))
+            
+            # Attention weights and output
+            attn_weights = F.softmax(sim_chunk, dim=-1)
+            attended_chunk = torch.mm(attn_weights, key_seq)
+            
+            attended_output[start:end] = attended_chunk
+            
+            # Clean up intermediate tensors
+            del sim_chunk, attn_weights, attended_chunk
+        
+        return attended_output
 
 class BertGMNStyleCrossAttention(nn.Module):
     """GMN-style cross-attention with NO learnable parameters"""

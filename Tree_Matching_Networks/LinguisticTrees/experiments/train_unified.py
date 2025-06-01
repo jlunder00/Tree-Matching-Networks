@@ -1,5 +1,6 @@
 # train_unified.py
 import torch.multiprocessing as mp
+import random
 import wandb
 import torch
 from pathlib import Path
@@ -10,6 +11,8 @@ import sys
 import yaml
 import os
 from typing import Optional, Dict, Any
+random.seed(42)
+torch.manual_seed(42)
 
 # Import necessary modules based on your project structure
 try:
@@ -328,6 +331,11 @@ def train_unified(args):
     best_val_loss = float('inf') if not args.resume else checkpoint.get('best_val_loss', float('inf'))
     patience_counter = 0
     
+    if args.resume_with_epoch:
+        r = random.uniform(0, 1)
+        train_dataset.set_pairing_ratio(r)
+        val_dataset.set_pairing_ratio(r)
+        print("using random for first epoch")
     # 5.2 Training epochs
     for epoch in range(start_epoch, config['train']['n_epochs']):
         logger.info(f"Starting epoch {epoch}/{config['train']['n_epochs']}")
@@ -345,10 +353,12 @@ def train_unified(args):
             r = random.uniform(0, 1) #random ratio
             train_dataset.set_pairing_ratio(r)
             val_dataset.set_pairing_ratio(r)
+            print("random for epoch")
         else: #random per batch
             r = -1
             train_dataset.set_pairing_ratio(r)
             val_dataset.set_pairing_ratio(r)
+            print("random per batch")
         
         # 5.5 Log metrics
         metrics = {

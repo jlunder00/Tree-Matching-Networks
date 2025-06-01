@@ -2,12 +2,12 @@
 
 #Legacy: used with dynamic calculated contrastive dataset, aspects still relevant in aggregative, could be used, not currently used
 # configs/experiment_configs/contrastive_config.yaml
-text_mode: True
+text_mode: False
 allow_text_files: False
 model:
   task_type: infonce
   task_loader_type: contrastive
-  name: bert_matching
+  name: tree_matching
   model_type: matching
   bert:
     hidden_size: 1024
@@ -15,7 +15,7 @@ model:
     num_attention_heads: 16
     intermediate_size: 2048
     max_position_embeddings: 384
-    tokenizer_path: /home/jlunder/temp_storage/tokenizers/bert-tokenizer5000_5/
+    tokenizer_path: /home/jlunder/tokenizers/bert-tokenizer5000_5/
     project: False
   graph:
     node_feature_dim: 804
