@@ -331,7 +331,7 @@ def train_unified(args):
     best_val_loss = float('inf') if not args.resume else checkpoint.get('best_val_loss', float('inf'))
     patience_counter = 0
     
-    if args.resume_with_epoch:
+    if args.resume_with_epoch and args.mode == 'contrastive':
         r = random.uniform(0, 1)
         train_dataset.set_pairing_ratio(r)
         val_dataset.set_pairing_ratio(r)
@@ -339,26 +339,29 @@ def train_unified(args):
     # 5.2 Training epochs
     for epoch in range(start_epoch, config['train']['n_epochs']):
         logger.info(f"Starting epoch {epoch}/{config['train']['n_epochs']}")
+        if args.mode == 'contrastive':
+            print(f"RATIO IS: {train_dataset.get_pairing_ratio()}")
         
         # 5.3 Train for one epoch
         train_metrics = train_epoch(model, train_dataset, optimizer, config, epoch)
         
         # 5.4 Validate
         val_metrics = validate_epoch(model, val_dataset, config, epoch)
-        if epoch+1 % 2 == 0 and train_dataset.get_pairing_ratio() > 0.0 and epoch +1 < 9:
-            r = train_dataset.get_pairing_ratio()
-            train_dataset.set_pairing_ratio(max(r-0.25, 0.0))
-            val_dataset.set_pairing_ratio(max(r-0.25, 0.0))
-        elif epoch+1 < 20: #random per epoch
-            r = random.uniform(0, 1) #random ratio
-            train_dataset.set_pairing_ratio(r)
-            val_dataset.set_pairing_ratio(r)
-            print("random for epoch")
-        else: #random per batch
-            r = -1
-            train_dataset.set_pairing_ratio(r)
-            val_dataset.set_pairing_ratio(r)
-            print("random per batch")
+        if args.mode == 'contrastive':
+            if epoch + 1 < 16 and epoch+1 % 4 == 0 and train_dataset.get_pairing_ratio() > 0.0:
+                r = train_dataset.get_pairing_ratio()
+                train_dataset.set_pairing_ratio(max(r-0.24, 0.0))
+                val_dataset.set_pairing_ratio(max(r-0.24, 0.0))
+            elif epoch+ 1 < 20: #random per epoch
+                r = random.uniform(0, 1) #random ratio
+                train_dataset.set_pairing_ratio(r)
+                val_dataset.set_pairing_ratio(r)
+                print("random for epoch")
+            else: #random per batch
+                r = -1
+                train_dataset.set_pairing_ratio(r)
+                val_dataset.set_pairing_ratio(r)
+                print("random per batch")
         
         # 5.5 Log metrics
         metrics = {

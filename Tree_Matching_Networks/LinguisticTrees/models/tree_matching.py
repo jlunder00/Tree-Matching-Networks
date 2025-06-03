@@ -71,6 +71,7 @@ import torch
 
 class TreeMatchingNet(nn.Module):
     def __init__(self, config):
+        super().__init__()
         node_feature_dim = config['model']['graph']['node_feature_dim']
         edge_feature_dim = config['model']['graph']['edge_feature_dim']
         node_state_dim = config['model']['graph']['node_state_dim']

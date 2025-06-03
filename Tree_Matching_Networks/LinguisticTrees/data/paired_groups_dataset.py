@@ -178,7 +178,7 @@ class PairedGroupsDatasetBase(IterableDataset):
             random.shuffle(self.data_files)
             
         # Load a sample file to check for embedding requirements
-        data = self._dataloader_handlers[file.suffix](self.data_files[0])
+        data = self._dataloader_handlers[self.data_files[0].suffix](self.data_files[0])
         self.requires_embeddings = data.get('requires_word_embeddings', False) and not self.text_mode
             
         if self.requires_embeddings:
@@ -340,14 +340,20 @@ class PairedGroupsDatasetBase(IterableDataset):
         
         return {k: v.squeeze(0) for k, v in encoded.items()}
 
-    def _tokenize_pair(self, text_a: str, text_b: str) -> Dict[str, torch.Tensor]:
+    def _tokenize_pair(self, text_a: str, text_b: str) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
         """Tokenize a pair of texts using the provided tokenizer."""
         if self.tokenizer is None:
             raise ValueError("Tokenizer must be provided when text_mode is enabled")
-            
-        # Handle tokenization with padding and truncation
-        encoded = self.tokenizer(
+        
+        encoded_a = self.tokenizer(
             text_a,
+            max_length=self.max_length,
+            padding="max_length",
+            truncation=True,
+            return_tensors="pt"
+        )
+        
+        encoded_b = self.tokenizer(
             text_b,
             max_length=self.max_length,
             padding="max_length",
@@ -355,7 +361,10 @@ class PairedGroupsDatasetBase(IterableDataset):
             return_tensors="pt"
         )
         
-        return {k: v.squeeze(0) for k, v in encoded.items()}
+        return (
+            {k: v.squeeze(0) for k, v in encoded_a.items()},
+            {k: v.squeeze(0) for k, v in encoded_b.items()}
+        )
         
     def _add_groups_from_file(self, file: Path):
         """Load a file and add its groups to the buffer."""
@@ -921,17 +930,18 @@ class NonStrictDataset(PairedGroupsDatasetBase):
     
     def _process_final_text_data(self, batch_trees):
         """Shared text processing logic"""
-        text_inputs = [self._tokenize_text(tree.get('text', '')) for tree in batch_trees]
-        if text_inputs:
-            batch_encoded = {k: torch.cat([p[k] for p in text_inputs]) for k in text_inputs[0].keys()}
-        else:
-            # Empty batch fallback
-            batch_encoded = {
-                'input_ids': torch.zeros((0, self.max_length), dtype=torch.long),
-                'attention_mask': torch.zeros((0, self.max_length), dtype=torch.long),
-                'token_type_ids': torch.zeros((0, self.max_length), dtype=torch.long)
-            }
-        return batch_encoded
+        # text_inputs = [self._tokenize_text(tree.get('text', '')) for tree in batch_trees]
+        # if text_inputs:
+        #     batch_encoded = {k: torch.cat([p[k] for p in text_inputs]) for k in text_inputs[0].keys()}
+        # else:
+        #     # Empty batch fallback
+        #     batch_encoded = {
+        #         'input_ids': torch.zeros((0, self.max_length), dtype=torch.long),
+        #         'attention_mask': torch.zeros((0, self.max_length), dtype=torch.long),
+        #         'token_type_ids': torch.zeros((0, self.max_length), dtype=torch.long)
+        #     }
+        # return batch_encoded
+        raise NotImplementedError("Subclasses must implement _process_final_text_data")
     
     def _prepare_pairs(self, batch_data):
         """
@@ -1220,6 +1230,9 @@ class MatchingDataset(NonStrictDataset):
                 processed_pairs.add((a_idx, b_idx))
                 
             return self._collate_graphs(all_graph_data)
+
+    def _process_final_text_data(self, batch_trees):
+
 
 
 def create_paired_groups_dataset(
