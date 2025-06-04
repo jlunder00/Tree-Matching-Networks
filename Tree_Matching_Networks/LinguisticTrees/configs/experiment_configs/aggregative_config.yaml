@@ -1,5 +1,5 @@
 # Authored by: Jason Lunder, Github: https://github.com/jlunder00/
-text_mode: False
+text_mode: True
 allow_text_files: False
 model:
   # task_type: similarity
@@ -7,7 +7,7 @@ model:
   task_type: infonce
   # task_type: entailment
   task_loader_type: aggregative
-  name: tree_matching
+  name: bert_matching
   model_type: matching
   bert:
     hidden_size: 1024
@@ -55,8 +55,8 @@ model:
   # thresh_high: 0.5
 
   #for entailment and semeval
-  positive_infonce_weight: 0.45
-  inverse_infonce_weight: 0.40
+  positive_infonce_weight: 0.55
+  inverse_infonce_weight: 0.30
   midpoint_infonce_weight: 0.15
   thresh_low: -0.33
   thresh_high: 0.33
@@ -68,20 +68,21 @@ model:
 
 data:
   # dataset_type: patentmatch_balanced
-  dataset_type: semeval
-  # dataset_type: snli
+  # dataset_type: semeval
+  dataset_type: snli
 
-  batch_size: 32
+  batch_size: 416
   strict_matching: False
   min_trees_per_group: 1
   num_workers_train: 0
   num_workers_val: 0
   prefetch_factor: 0
   max_batches_per_epoch: 1000
-  contrastive_mode: True
+  contrastive_mode: False
   allow_negatives: True
   allow_neutrals: True
   allow_positives: True
+  num_workers: 0
 
 embedding_cache_dir: '/home/jlunder/research/TMN_DataGen/embedding_cache5/'
 use_gpu: false

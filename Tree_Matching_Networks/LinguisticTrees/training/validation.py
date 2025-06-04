@@ -370,28 +370,38 @@ def validate_step_contrastive(model, X, batch_info, loss_fn, device, config):
         else:
             raise
 
-def validate_step(model, graphs, batch_info, loss_fn, device, config):
+
+def validate_step_graph(model, X, device):
+    graphs = GraphData(
+        node_features=X.node_features.to(device, non_blocking=True),
+        edge_features=X.edge_features.to(device, non_blocking=True),
+        from_idx=X.from_idx.to(device, non_blocking=True),
+        to_idx=X.to_idx.to(device, non_blocking=True),
+        graph_idx=X.graph_idx.to(device, non_blocking=True),
+        n_graphs=X.n_graphs
+    )
+    
+    # Forward pass
+    embeddings = model(
+        graphs.node_features,
+        graphs.edge_features,
+        graphs.from_idx,
+        graphs.to_idx,
+        graphs.graph_idx,
+        graphs.n_graphs
+    )
+    return embeddings
+
+forward_step_handlers_non_contrastive = {
+    'graph': validate_step_graph,
+    'bert': validate_step_bert
+}
+def validate_step(model, X, batch_info, loss_fn, device, config):
     """Single validation step with memory management"""
     try:
         # Move data to device
-        graphs = GraphData(
-            node_features=graphs.node_features.to(device, non_blocking=True),
-            edge_features=graphs.edge_features.to(device, non_blocking=True),
-            from_idx=graphs.from_idx.to(device, non_blocking=True),
-            to_idx=graphs.to_idx.to(device, non_blocking=True),
-            graph_idx=graphs.graph_idx.to(device, non_blocking=True),
-            n_graphs=graphs.n_graphs
-        )
-        
-        # Forward pass
-        embeddings = model(
-            graphs.node_features,
-            graphs.edge_features,
-            graphs.from_idx,
-            graphs.to_idx,
-            graphs.graph_idx,
-            graphs.n_graphs
-        )
+        embeddings = forward_step_handlers[config['model_name']](model, X, device)
+        loss, predictions, metrics = loss_fn(embeddings, batch_info)
         
         # Compute metrics based on task
         # if config['model']['task_type'] == 'similarity':
@@ -403,7 +413,7 @@ def validate_step(model, graphs, batch_info, loss_fn, device, config):
         loss, predictions, metrics = loss_fn(embeddings, batch_info)
         
         # Cleanup
-        del graphs
+        del X
         del embeddings
         torch.cuda.empty_cache()
         
