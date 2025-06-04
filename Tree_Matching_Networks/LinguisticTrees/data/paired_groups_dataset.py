@@ -647,7 +647,7 @@ class StrictMatchingDataset(PairedGroupsDatasetBase):
         
         # Sort by contribution (smallest first for better batch packing)
         group_contributions.sort(key=lambda x: x[2])
-        
+
         # Greedy algorithm to fill batch without exceeding target
         for group_id, group_info, contribution in group_contributions:
             if pair_count + contribution > self.target_pairs and selected_groups:
@@ -1077,7 +1077,7 @@ class EmbeddingDataset(NonStrictDataset):
     def _process_final_data(self, batch_trees, pair_indices):
         """Process data for embedding model"""
         if self.text_mode:
-            return self._process_final_text_data(batch_trees)
+            return self._process_final_text_data(batch_trees, pair_indices)
         else:
             # All trees individually for embedding
             all_trees = [item['tree'] for item in batch_trees]
@@ -1213,7 +1213,7 @@ class MatchingDataset(NonStrictDataset):
     def _process_final_data(self, batch_trees, pair_indices):
         """Process data for matching model"""
         if self.text_mode:
-            return self._process_final_text_data(batch_trees)
+            return self._process_final_text_data(batch_trees, pair_indices)
         else:
             # Process tree pairs for matching (similar to StrictMatchingDataset)
             all_graph_data = []
@@ -1231,7 +1231,35 @@ class MatchingDataset(NonStrictDataset):
                 
             return self._collate_graphs(all_graph_data)
 
-    def _process_final_text_data(self, batch_trees):
+    def _process_final_text_data(self, batch_trees, pair_indices):
+        text_list = []
+        text_encodings = []
+        processed_pairs = set()
+        
+        for a_idx, b_idx, _ in pair_indices:
+            if (a_idx, b_idx) in processed_pairs:
+                continue
+            
+            text_a = batch_trees[a_idx]['text']
+            text_b = batch_trees[b_idx]['text']
+            text_list.extend([text_a, text_b])
+            text_encodings.extend([self._tokenize_text(text_a), self._tokenize_text(text_b)])
+            processed_pairs.add((a_idx, b_idx))
+
+        if text_encodings:
+            batch_encoding = {k: torch.stack([enc[k] for enc in text_encodings]) 
+                 for k in text_encodings[0].keys()}
+            output = batch_encoding
+        else:
+            # Empty batch fallback
+            output = {
+                'input_ids': torch.zeros((0, self.max_length), dtype=torch.long),
+                'attention_mask': torch.zeros((0, self.max_length), dtype=torch.long),
+                'token_type_ids': torch.zeros((0, self.max_length), dtype=torch.long)
+            }
+        return output
+        
+        
 
 
 
