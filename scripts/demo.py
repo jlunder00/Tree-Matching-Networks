@@ -269,8 +269,8 @@ def main():
     vocabs = [set()]  # In practice, vocabs are loaded from a word vector model.
     if args.spacy_model:
         d_config.parser['parsers']['spacy']['model_name'] = args.spacy_model
-    multi_parser = MultiParser(d_config, pkg_config=pkg_config, vocabs=vocabs, logger=None)
-    all_tree_groups = multi_parser.parse_all(sentence_groups, show_progress=False, num_workers=1)
+    multi_parser = MultiParser(d_config, pkg_config=pkg_config, vocabs=vocabs, logger=None, max_concurrent=0, num_workers=8)
+    all_tree_groups = multi_parser.parse_all(sentence_groups, show_progress=False)
     print("Parsing of sentences into trees complete.")
 
     # 6. Create TreeGroup objects.

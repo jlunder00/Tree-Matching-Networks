@@ -21,7 +21,7 @@ class ExperimentManager:
         
         dataset_type = self.config['data']['dataset_type']
         # Setup directories
-        self.base_dir = Path("/home/jlunder/temp_storage/")
+        self.base_dir = Path("/home/jlunder/temp_temp_storage/")
         self.experiment_dir = self.base_dir / f"{task_type}_{dataset_type}_{self.timestamp}"
         self.checkpoint_dir = self.experiment_dir / "checkpoints"
         self.config_dir = self.experiment_dir / "config"

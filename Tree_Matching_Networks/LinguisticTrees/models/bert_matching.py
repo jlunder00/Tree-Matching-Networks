@@ -42,10 +42,9 @@ class BertMatchingNet(nn.Module):
         if self.n_cross_layers > 0:
             # Determine which BERT layers to insert cross-attention after
             self.cross_attention_positions = self._get_cross_attention_positions(num_hidden_layers)
-            
             # Create cross-attention layers (no learnable parameters - pure GMN style)
+
             self.cross_attention_layers = nn.ModuleList([
-                # MemoryEfficientCrossAttention(similarity='dotproduct') 
                 BertGMNStyleCrossAttention(similarity='dotproduct') 
                 for _ in range(len(self.cross_attention_positions))
             ])
@@ -294,8 +293,8 @@ class BertGMNStyleCrossAttention(nn.Module):
         
     def forward(self, hidden_states, attention_mask):
         """
-        GMN-style cross-attention between adjacent pairs
-        NO learnable parameters - just similarity + softmax
+        Unlearned cross-attention between adjacent pairs
+        No learnable parameters - just similarity + softmax
         """
         batch_size, seq_len, hidden_size = hidden_states.shape
         sim_fn = self.get_similarity_fn()
@@ -308,7 +307,7 @@ class BertGMNStyleCrossAttention(nn.Module):
             mask_a = attention_mask[i]    # [seq_len] 
             mask_b = attention_mask[i + 1] # [seq_len]
             
-            # GMN-style cross-attention (NO learned parameters)
+            # Unlearned cross-attention
             # A attends to B
             sim_ab = sim_fn(seq_a, seq_b)  # [seq_len_a, seq_len_b]
             
@@ -328,7 +327,6 @@ class BertGMNStyleCrossAttention(nn.Module):
             attn_weights_ba = F.softmax(sim_ba, dim=-1)  # B -> A weights
             attended_b = torch.mm(attn_weights_ba, seq_a)  # Weighted sum of A for B
             
-            # Simple residual (like GMN) - NO layer norms or FFN
             updated_a = seq_a + attended_a
             updated_b = seq_b + attended_b
             

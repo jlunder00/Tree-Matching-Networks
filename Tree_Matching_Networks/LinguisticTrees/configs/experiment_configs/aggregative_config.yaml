@@ -4,8 +4,8 @@ allow_text_files: False
 model:
   # task_type: similarity
   # task_type: binary
-  task_type: infonce
-  # task_type: entailment
+  # task_type: infonce
+  task_type: entailment
   task_loader_type: aggregative
   name: bert_matching
   model_type: matching
@@ -72,6 +72,7 @@ data:
   dataset_type: snli
 
   batch_size: 416
+  # batch_size: 64
   strict_matching: False
   min_trees_per_group: 1
   num_workers_train: 0
