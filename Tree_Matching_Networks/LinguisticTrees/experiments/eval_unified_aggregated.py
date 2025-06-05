@@ -369,7 +369,7 @@ def main():
         text_mode=is_bert_model,  # Use text mode for BERT models
         tokenizer=tokenizer if is_bert_model else None,
         max_length=config['model']['bert'].get('max_position_embeddings', 512) if is_bert_model else 512,
-        allow_text_files=is_bert_model
+        allow_text_files=False
     )
     
     # Create sequential dataloader

@@ -99,12 +99,12 @@ def load_model_from_checkpoint(checkpoint_path: str, base_config=None, override_
         return model, config, checkpoint.get('epoch', 0), None
 
 def run_tree_demo(text_pairs: List[Tuple[str, str]], labels: List[str], 
-                  checkpoint_path: str, spacy_model: Optional[str] = None) -> Dict:
+                  checkpoint_path: str, spacy_model: Optional[str] = None, base_config=None) -> Dict:
     """Run demo using tree-based models."""
     print("=== Running Tree-based Model Demo ===")
     
     # Load model and config
-    model, config, epoch, _ = load_model_from_checkpoint(checkpoint_path)
+    model, config, epoch, _ = load_model_from_checkpoint(checkpoint_path, base_config)
     model.eval()
     device = torch.device(config['device'])
     model = model.to(device)
@@ -114,17 +114,34 @@ def run_tree_demo(text_pairs: List[Tuple[str, str]], labels: List[str],
     from omegaconf import OmegaConf
     
     datagen_config_dir = Path("/home/jlunder/research/TMN_DataGen/TMN_DataGen/configs")
+    with open(datagen_config_dir / "default_package_config.yaml", 'r') as f:
+        pkg_config = yaml.safe_load(f)
+    with open(datagen_config_dir / "default_parser_config.yaml", 'r') as f:
+        parser_config = yaml.safe_load(f)
+    with open(datagen_config_dir / "default_preprocessing_config.yaml", 'r') as f:
+        preprocessing_config = yaml.safe_load(f)
+    with open(datagen_config_dir / "default_feature_config.yaml", 'r') as f:
+        feature_config = yaml.safe_load(f)
+    with open(datagen_config_dir / "default_output_format.yaml", 'r') as f:
+        output_config = yaml.safe_load(f)
+    with open(datagen_config_dir / "default_merge_config.yaml", 'r') as f:
+        merge_config = yaml.safe_load(f)
     configs = {}
-    for config_file in ["default_package_config.yaml", "default_parser_config.yaml", 
-                       "default_preprocessing_config.yaml", "default_feature_config.yaml", 
-                       "default_output_format.yaml", "default_merge_config.yaml"]:
-        with open(datagen_config_dir / config_file, 'r') as f:
-            configs.update(yaml.safe_load(f))
-    
+    # for config_file in ["default_package_config.yaml", "default_parser_config.yaml", 
+    #                    "default_preprocessing_config.yaml", "default_feature_config.yaml", 
+    #                    "default_output_format.yaml", "default_merge_config.yaml"]:
+    #     with open(datagen_config_dir / config_file, 'r') as f:
+    #         configs.update(yaml.safe_load(f))
+    # 
+    configs = {}
+    configs.update(parser_config)
+    configs.update(preprocessing_config)
+    configs.update(feature_config)
+    configs.update(output_config)
+    configs.update(merge_config)
     d_config = OmegaConf.create(configs)
+    # d_config = OmegaConf.create(configs)
     
-    if spacy_model:
-        d_config.parser['parsers']['spacy']['model_name'] = spacy_model
     
     # Preprocess and parse
     preprocessor = BasePreprocessor(d_config)
@@ -155,7 +172,9 @@ def run_tree_demo(text_pairs: List[Tuple[str, str]], labels: List[str],
         sentence_groups.extend([sentences_a, sentences_b])
     
     vocabs = [set()]
-    multi_parser = MultiParser(d_config, pkg_config=configs, vocabs=vocabs, 
+    if spacy_model:
+        d_config.parser['parsers']['spacy']['model_name'] = spacy_model
+    multi_parser = MultiParser(d_config, pkg_config=pkg_config, vocabs=vocabs, 
                               logger=None, max_concurrent=0, num_workers=8)
     all_tree_groups = multi_parser.parse_all(sentence_groups, show_progress=False)
     
@@ -173,8 +192,9 @@ def run_tree_demo(text_pairs: List[Tuple[str, str]], labels: List[str],
         tree_groups.append(tg)
     
     generator = DatasetGenerator(num_workers=1)
-    _, _ = generator._load_configs(*configs.values(), 'normal', override_pkg_config=configs)
+    # _, _ = generator._load_configs(*configs.values(), 'normal', override_pkg_config=configs)
     generator.config = d_config
+    _, _ = generator._load_configs(parser_config, preprocessing_config, feature_config, output_config, merge_config, 'normal', override_pkg_config=pkg_config)
     infonce_data = generator._convert_to_infonce_format(tree_groups, is_paired=True)
     
     # Load embeddings if needed
@@ -381,12 +401,12 @@ def run_tree_demo(text_pairs: List[Tuple[str, str]], labels: List[str],
     return results
 
 def run_bert_demo(text_pairs: List[Tuple[str, str]], labels: List[str], 
-                  checkpoint_path: str) -> Dict:
+                  checkpoint_path: str, base_config=None) -> Dict:
     """Run demo using BERT-based models."""
     print("=== Running BERT-based Model Demo ===")
     
     # Load model and config
-    model, config, epoch, tokenizer = load_model_from_checkpoint(checkpoint_path)
+    model, config, epoch, tokenizer = load_model_from_checkpoint(checkpoint_path, base_config)
     model.eval()
     device = torch.device(config['device'])
     model = model.to(device)
@@ -508,8 +528,22 @@ def main():
                         help="SpaCy model to use for tree parsing")
     parser.add_argument("--mode", type=str, choices=['tree', 'bert', 'both'], default='both',
                         help="Which model(s) to run")
+    parser.add_argument("--config_tmn", type=str, default=None,
+                        help="Optional config override file")
+    parser.add_argument("--config_bert", type=str, default=None,
+                        help="Optional config override file")
     
     args = parser.parse_args()
+    base_config_tmn = None
+    if args.config_tmn is not None:
+        import yaml
+        with open(args.config_tmn, 'r') as f:
+            base_config_tmn = yaml.safe_load(f)
+    base_config_bert = None
+    if args.config_bert is not None:
+        import yaml
+        with open(args.config_bert, 'r') as f:
+            base_config_bert = yaml.safe_load(f)
     
     if args.mode == 'both' and (not args.tree_checkpoint or not args.bert_checkpoint):
         print("Error: Both tree and BERT checkpoints required for 'both' mode")
@@ -532,7 +566,7 @@ def main():
     # Run demos based on mode
     if args.mode in ['tree', 'both']:
         try:
-            tree_results = run_tree_demo(text_pairs, labels, args.tree_checkpoint, args.spacy_model)
+            tree_results = run_tree_demo(text_pairs, labels, args.tree_checkpoint, args.spacy_model, base_config=base_config_tmn)
             print_results(tree_results, "Tree Model")
         except Exception as e:
             print(f"Error running tree demo: {e}")
@@ -541,7 +575,7 @@ def main():
     
     if args.mode in ['bert', 'both']:
         try:
-            bert_results = run_bert_demo(text_pairs, labels, args.bert_checkpoint)
+            bert_results = run_bert_demo(text_pairs, labels, args.bert_checkpoint, base_config=base_config_bert)
             print_results(bert_results, "BERT Model")
         except Exception as e:
             print(f"Error running BERT demo: {e}")

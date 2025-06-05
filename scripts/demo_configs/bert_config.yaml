@@ -1,0 +1,160 @@
+# Authored by: Jason Lunder, Github: https://github.com/jlunder00/
+text_mode: True
+allow_text_files: False
+model:
+  # task_type: similarity
+  # task_type: binary
+  # task_type: infonce
+  task_type: entailment
+  task_loader_type: aggregative
+  name: bert_matching
+  model_type: matching
+  bert:
+    hidden_size: 1024
+    num_hidden_layers: 4
+    num_attention_heads: 16
+    intermediate_size: 2048
+    max_position_embeddings: 384
+    tokenizer_path: /home/jlunder/tokenizers/bert-tokenizer5000_5/
+    project: False
+  graph:
+    node_feature_dim: 804
+    edge_feature_dim: 70
+    node_state_dim: 1536
+    edge_state_dim: 768
+    #both edge and node hidden sizes will have a node_state_dim*2 or node_state_dim*3 layer appended in model definition. x3 or x2 is dependant on embedding vs matching type as is required
+    edge_hidden_sizes: 
+      - 768
+      - 1024
+    node_hidden_sizes: 
+      - 1536
+      - 1536
+    
+    # graph_rep_dim: 1792
+    graph_rep_dim: 2048
+    #graph_transform_sizes wil have graph_rep_dim appended on it
+    graph_transform_sizes: 
+      - 1536
+      - 1536
+
+    edge_net_init_scale: 0.1
+    reverse_dir_param_different: false
+    use_reverse_direction: true
+    share_prop_params: true
+
+    n_prop_layers: 5
+
+  temperature: 0.05
+  aggregation: attention
+
+  # for patentmatch
+  # positive_infonce_weight: 0.3
+  # inverse_infonce_weight: 1.0
+  # midpoint_infonce_weight: 0.0
+  # thresh_low: 0.5
+  # thresh_high: 0.5
+
+  #for entailment and semeval
+  positive_infonce_weight: 0.55
+  inverse_infonce_weight: 0.30
+  midpoint_infonce_weight: 0.15
+  thresh_low: -0.33
+  thresh_high: 0.33
+
+  #for binary
+  threshold: 0.0
+
+
+
+data:
+  # dataset_type: patentmatch_balanced
+  # dataset_type: semeval
+  dataset_type: snli
+
+  batch_size: 416
+  # batch_size: 64
+  strict_matching: False
+  min_trees_per_group: 1
+  num_workers_train: 0
+  num_workers_val: 0
+  prefetch_factor: 0
+  max_batches_per_epoch: 1000
+  contrastive_mode: False
+  allow_negatives: True
+  allow_neutrals: True
+  allow_positives: True
+  num_workers: 0
+
+embedding_cache_dir: '/home/jlunder/research/TMN_DataGen/embedding_cache5/'
+use_gpu: false
+
+train:
+  learning_rate: 0.000001
+  weight_decay: 0.00001
+  n_epochs: 500
+  patience: 10
+  gradient_accumulation_steps: 1
+  clip_value: 1.0
+  cleanup_interval: 5
+
+wandb:
+  project: tree-embedding
+  # tags: [aggregative, patentmatch_balanced]
+  # tags: [aggregative, semeval]
+  tags: [aggregative, snli]
+  log_interval: 10
+  memory_logging: true
+
+#backup:
+  #  # node_state_dim: 1024
+  # edge_state_dim: 256
+#   #both edge and node hidden sizes will have a node_state_dim*2 or node_state_dim*3 layer appended in model definition. x3 or x2 is dependant on embedding vs matching type as is required
+#   edge_hidden_sizes: 
+#     - 512
+#   node_hidden_sizes: 
+#     - 1024
+#   
+#   graph_rep_dim: 1792
+#   #graph_transform_sizes wil have graph_rep_dim appended on it
+#   graph_transform_sizes: 
+#     - 1024
+
+#   edge_net_init_scale: 0.1
+#   reverse_dir_param_different: false
+#   use_reverse_direction: true
+#   share_prop_params: true
+
+#   n_prop_layers: 5
+#   temperature: 0.05
+#   aggregation: attention
+
+#   # for patentmatch
+#   # positive_infonce_weight: 0.3
+#   # inverse_infonce_weight: 1.0
+#   # midpoint_infonce_weight: 0.0
+#   # thresh_low: 0.5
+#   # thresh_high: 0.5
+
+#   #for entailment and semeval
+#   positive_infonce_weight: 0.05
+#   inverse_infonce_weight: 1.0
+#   midpoint_infonce_weight: 0.1
+#   thresh_low: -0.33
+#   thresh_high: 0.33
+
+#   #for binary
+#   threshold: 0.0
+
+
+
+# data:
+#   # dataset_type: patentmatch_balanced
+#   # dataset_type: semeval
+#   dataset_type: snli
+
+#   batch_size: 256
+#   strict_matching: False
+#   min_trees_per_group: 1
+#   batch_size: 256
+
+

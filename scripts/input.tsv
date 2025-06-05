@@ -1,5 +1,7 @@
 A soccer game with multiple males playing.	Some men are playing a sport.	entailment
-A black race car starts up in front of a crowd of people. There are so many people!	A man is driving down a lonely road. The man is all alone, no one else is around.	contradiction
+A black race car starts up in front of a crowd of people.	A man is driving down a lonely road.	contradiction
 Water is wet.	Water is not wet, it is dry.	contradiction
 A smiling costumed woman is holding an umbrella.	A happy woman in a fairy costume holds an umbrella	neutral
-The quick brown fox jumped over the lazy dog. Wow this dog is really lazy!	The dog is so lazy, he let the fox jump over him.	entailment
+The quick brown fox jumped over the lazy dog.	The dog is laying down.	entailment
+A man inspects the uniform of a figure in some East Asian country.	The man is sleeping.	contradiction
+An older and younger man smiling.	Two men are smiling and laughing at the cats playing on the floor.	neutral
