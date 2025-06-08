@@ -4,12 +4,15 @@ This module contains an adaptation of Graph Matching Networks (GMN) for linguist
 
 ## Architecture Overview
 
-The system consists of two main components:
+The implementation supports multiple model architectures:
 
-1. **Tree Matching Network (TMN)**: Extends GMN with cross-graph attention for comparing pairs of trees.
-2. **Tree Embedding Network**: Maps individual trees to embeddings for similarity comparison. (This model turned out not very useful for this task)
+### Tree Matching Networks (TMN)
+- **TreeMatchingNet**: Extends GMN with cross-graph attention to compare dependency trees directly
+- **TreeEmbeddingNet**: Creates independent embeddings for each tree, then compares
 
-Both models process dependency trees and can be trained with various loss functions for different NLP tasks.
+### BERT Baselines
+- **BertMatchingNet**: BERT with cross-attention for sentence pair comparison
+- **BertEmbeddingNet**: Independent BERT embeddings with similarity comparison
 
 ## Configuration System
 
@@ -160,7 +163,7 @@ dev/snli_1.0_dev_converted_sm/
 test/snl1_1.0_test_converted_sm/
 train/snli_1.0_train_converted_sm/
 ```
-So the format is like: `{dataset_name}_{split}_converted_{spacy_variant}`, see tree_data_config.py for more details. TODO: simplify this structure    
+So the format is like: `{dataset_name}_{split}_converted_{spacy_variant}`, see tree_data_config.py and (section below on this) for more details. TODO: simplify this structure    
 
 And for training a model in primary training/fine tuning:
 ```bash
@@ -204,7 +207,7 @@ python -m Tree_Matching_Networks.LinguisticTrees.experiments.eval_aggregated \
 Note: when you give a checkpoint file at `/path/to/checkpoint_dir/checkpoint/model.pt`, the script searches for    
 the config at `/path/to/checkpoint_dir/config/config.yaml`. This file must be present for the script to function.    
 The config file given is the config the model was trained with. This is usually the correct config to use, but you can    
-pass the `--config` argument to override it.
+pass the `--config` argument to override it. Overriding in this way is usually necessary when training a model in multiple stages.
 
 ### Data root dir
 Important note: the data root directory should contain 3 directories, train, test, and dev.    
