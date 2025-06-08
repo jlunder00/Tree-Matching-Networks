@@ -1,3 +1,5 @@
+# Authored by: Jason Lunder, Github: https://github.com/jlunder00/
+
 # models/bert_embedding.py
 import torch
 import torch.nn as nn
