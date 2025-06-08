@@ -2,14 +2,15 @@
 
 This demo script demonstrates the full pipeline for Tree Matching Networks, showing how to:
 1. Preprocess text
-2. Parse it into dependency trees
-3. Run inference with a trained model
+2. Parse it into dependency trees or tokenize for BERT
+3. Run inference with trained model(s)
 4. Compare results between TMN and BERT models
 5. Evaluate the results
 
 ## Prerequisites
 
 Before running the demo, ensure you have:
+
 1. Installed both packages:
    ```bash
    # Install TMN_DataGen
@@ -21,9 +22,9 @@ Before running the demo, ensure you have:
    pip install .
    ```
 
-2. Followed the instructions at [TMN_DataGen](https://github.com/jlunder00/TMN_DataGen/tree/main?tab=readme-ov-file#required-dependencies) to set up the vocabularies and embedding cache
+2. Followed the instructions at [TMN_DataGen](https://github.com/jlunder00/TMN_DataGen/tree/CSCD584/Submission?tab=readme-ov-file#required-dependencies) to set up the vocabularies and embedding cache
 
-3. For BERT models: Trained a custom tokenizer on your corpus using the instructions in [LinguisticTrees README](../Tree_Matching_Networks/LinguisticTrees/README.md#training-custom-bert-tokenizer)
+3. **For BERT models**: Trained a custom tokenizer on your corpus using the instructions in [LinguisticTrees README](../Tree_Matching_Networks/LinguisticTrees/README.md#training-custom-bert-tokenizer)
 
 ## Running the Demo
 
@@ -34,20 +35,18 @@ The demo script takes a tsv file containing pairs with optional labels and runs 
 **Tree Matching Network**:
 ```bash
 python -m Tree_Matching_Networks.scripts.demo \
-  --mode tree \
-  --tree_checkpoint /path/to/checkpoint/best_model.pt \
+  --checkpoint /path/to/checkpoint/best_model.pt \
   --input input.tsv \
-  --config_tree /path/to/config/file.yaml \
+  --config /path/to/config/file.yaml \
   --spacy_model en_core_web_sm
 ```
 
 **BERT Model**:
 ```bash
 python -m Tree_Matching_Networks.scripts.demo \
-  --mode bert \
-  --bert_checkpoint /path/to/bert_checkpoint/best_model.pt \
+  --checkpoint /path/to/bert_checkpoint/best_model.pt \
   --input input.tsv \
-  --config_bert /path/to/bert_config/file.yaml
+  --config /path/to/bert_config/file.yaml
 ```
 
 ### Comparing Both Models
@@ -65,17 +64,18 @@ python -m Tree_Matching_Networks.scripts.demo \
 
 ### Command-line Arguments
 
-- `--tree_checkpoint`: Path to Tree Matching Network checkpoint 
-- `--bert_checkpoint`: Path to BERT model checkpoint 
+- `--checkpoint`: Path to a trained model checkpoint (required for single model)
+- `--tree_checkpoint`: Path to Tree Matching Network checkpoint (for comparison mode)
+- `--bert_checkpoint`: Path to BERT model checkpoint (for comparison mode)
 - `--input`: Either a tab-separated text pair or a file path containing pairs (required)
-- `--config_tmn`: Configuration file override for TMN model 
-- `--config_bert`: Configuration file override for BERT model 
-- `--mode`: "tree" or "bert" for single model modes, or "both" for model comparison
+- `--config`: Optional configuration override file (single model mode)
+- `--config_tmn`: Configuration file for TMN model (comparison mode)
+- `--config_bert`: Configuration file for BERT model (comparison mode)
+- `--mode`: "single" (default) or "both" for model comparison
 - `--spacy_model`: Optional spacy model override to use a different model than en_core_web_sm when generating tree node features.
 
 Note that occasionally the provided config that comes with a checkpoint may not work in the demo script.    
 Providing a config override to an appropriately configured custom config or one such config from Tree_Matching_Networks/LinguisticTrees/configs/experiment_configs/ can resolve this issue.
-
 
 ### Input Format
 
@@ -93,8 +93,7 @@ Using the sample input file provided:
 
 ```bash
 python demo.py \
-  --tree_checkpoint /path/to/best_entailment_model_checkpoint/checkpoints/best_model.pt \
-  --mode 
+  --checkpoint /path/to/best_entailment_model_checkpoint/checkpoints/best_model.pt \
   --input input.tsv
 ```
 
@@ -115,6 +114,6 @@ If you encounter errors related to embedding cache or preprocessing:
 1. Check your TMN_DataGen configuration files to ensure paths are set correctly
 2. Make sure the embedding cache directory exists and is writable
 3. Ensure the Word2Vec vocabulary file is downloaded and properly configured
-4. For BERT models: Verify your custom tokenizer exists and the path is correct in your configuration
+4. **For BERT models**: Verify the custom tokenizer path is correct in your configuration
 
 Refer to the [main LinguisticTrees README](../Tree_Matching_Networks/LinguisticTrees/README.md) for more detailed configuration instructions.

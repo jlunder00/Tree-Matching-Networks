@@ -60,6 +60,10 @@ Before using the models, you'll need:
    ```
    - Set path in configuration files
 
+4. **Custom BERT Tokenizer** (for BERT models): Train a tokenizer on your text corpus:
+   - See [LinguisticTrees README](LinguisticTrees/README.md#training-custom-bert-tokenizer) for instructions
+   - Set `tokenizer_path` in BERT model configuration
+
 ## Quick Start
 
 ### Running the Demo
@@ -68,8 +72,11 @@ Try out the model with the demo script:
 
 ```bash
 python -m Tree_Matching_Networks.scripts.demo \
-  --checkpoint /path/to/best_entailment_model_checkpoint/checkpoints/best_model.pt \
-  --config /path/to/custom/config.yaml  \
+  --mode both \
+  --tree_checkpoint /path/to/tmn_entailment_lg_checkpoint/model.pt \
+  --config_tmn /path/to/Tree-Matching-Networks/scripts/demo_configs/tmn_config.yaml  \
+  --bert_checkpoint /path/to/bert_matching_entailment_checkpoint/model.pt \
+  --config_bert /path/to/Tree-Matching-Networks/scripts/demo_configs/bert_config.yaml  \
   --input input.tsv \
   --spacy_model en_core_web_sm
 ```
@@ -117,6 +124,7 @@ python -m Tree_Matching_Networks.LinguisticTrees.experiments.eval_aggregated \
 
 - **Tree-Based Representation**: Leverages dependency trees to capture sentence structure
 - **Cross-Graph Attention**: Compares sentences using graph matching techniques
+- **BERT Baseline Model**: Enhanced BERT model with cross-attention for comparison
 - **Flexible Model Configuration**: Supports different tasks and training approaches
 - **Contrastive Learning**: Pretrain on large datasets for better transfer
 - **Multiple NLP Tasks**: Supports entailment, similarity, and binary classification
