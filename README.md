@@ -97,7 +97,7 @@ python -m TMN_DataGen.run process \
   --spacy_model en_core_web_sm
 ```
 
-See [TMN_DataGen README](https://github.com/jlunder00/TMN_DataGen/blob/main/README.md) for more details.
+See [TMN_DataGen README](https://github.com/jlunder00/TMN_DataGen/tree/main?tab=readme-ov-file#tmn_datagen) for more details.
 
 ### Training
 
@@ -108,7 +108,7 @@ python -m Tree_Matching_Networks.LinguisticTrees.experiments.train_aggregative \
   --config Tree_Matching_Networks/LinguisticTrees/configs/experiment_configs/aggregative_config.yaml
 ```
 
-See [LinguisticTrees README](https://github.com/jlunder00/Tree-Matching-Networks/tree/main/Tree_Matching_Networks/LinguisticTrees#linguistic-tree-matching-networks) for more configuration options.
+See [LinguisticTrees README](https://github.com/jlunder00/Tree-Matching-Networks/tree/main/Tree_Matching_Networks/LinguisticTrees#configuration-system) for more configuration options.
 
 ### Evaluation
 
