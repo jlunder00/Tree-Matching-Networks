@@ -1,3 +1,5 @@
+[//]: # (Authored by: Jason Lunder, github: https://github.com/jlunder00)
+
 # Demo Script for Tree Matching Networks
 
 This demo script demonstrates the full pipeline for Tree Matching Networks, showing how to:

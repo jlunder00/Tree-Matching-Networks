@@ -1,3 +1,5 @@
+[//]: # (Authored by: Jason Lunder, github: https://github.com/jlunder00)
+
 # Tree Matching Networks for NLI
 
 [![LICENSE](https://img.shields.io/badge/license-MIT-green)](https://github.com/jlunder00/Tree-Matching-Networks/blob/main/LICENSE)
@@ -60,10 +62,6 @@ Before using the models, you'll need:
    ```
    - Set path in configuration files
 
-4. **Custom BERT Tokenizer** (for BERT models): Train a tokenizer on your text corpus:
-   - See [LinguisticTrees README](https://github.com/jlunder00/Tree-Matching-Networks/tree/main/Tree_Matching_Networks/LinguisticTrees#bert-tokenizer-setup) for instructions
-   - Set `tokenizer_path` in BERT model configuration
-
 ## Quick Start
 
 ### Running the Demo
@@ -72,18 +70,15 @@ Try out the model with the demo script:
 
 ```bash
 python -m Tree_Matching_Networks.scripts.demo \
-  --mode both \
-  --tree_checkpoint /path/to/tmn_entailment_lg_checkpoint/model.pt \
-  --config_tmn /path/to/Tree-Matching-Networks/scripts/demo_configs/tmn_config.yaml  \
-  --bert_checkpoint /path/to/bert_matching_entailment_checkpoint/model.pt \
-  --config_bert /path/to/Tree-Matching-Networks/scripts/demo_configs/bert_config.yaml  \
+  --checkpoint /path/to/best_entailment_model_checkpoint/checkpoints/best_model.pt \
+  --config /path/to/custom/config.yaml  \
   --input input.tsv \
   --spacy_model en_core_web_sm
 ```
 Note that occasionally the provided config that comes with a checkpoint may not work in the demo script.    
 Providing a config override to an appropriately configured custom config or one such config from Tree_Matching_Networks/LinguisticTrees/configs/experiment_configs/ can resolve this issue.
 
-See [Demo Instructions](https://github.com/jlunder00/Tree-Matching-Networks/tree/main/scripts#demo-script-for-tree-matching-networks) for more details.
+See [Demo Instructions](scripts/README.md) for more details.
 
 ### Data Processing
 
@@ -97,7 +92,7 @@ python -m TMN_DataGen.run process \
   --spacy_model en_core_web_sm
 ```
 
-See [TMN_DataGen README](https://github.com/jlunder00/TMN_DataGen/tree/main?tab=readme-ov-file#tmn_datagen) for more details.
+See [TMN_DataGen README](https://github.com/jlunder00/TMN_DataGen/blob/main/README.md) for more details.
 
 ### Training
 
@@ -108,7 +103,7 @@ python -m Tree_Matching_Networks.LinguisticTrees.experiments.train_aggregative \
   --config Tree_Matching_Networks/LinguisticTrees/configs/experiment_configs/aggregative_config.yaml
 ```
 
-See [LinguisticTrees README](https://github.com/jlunder00/Tree-Matching-Networks/tree/main/Tree_Matching_Networks/LinguisticTrees#configuration-system) for more configuration options.
+See [LinguisticTrees README](Tree_Matching_Networks/LinguisticTrees/README.md) for more configuration options.
 
 ### Evaluation
 
@@ -124,7 +119,6 @@ python -m Tree_Matching_Networks.LinguisticTrees.experiments.eval_aggregated \
 
 - **Tree-Based Representation**: Leverages dependency trees to capture sentence structure
 - **Cross-Graph Attention**: Compares sentences using graph matching techniques
-- **BERT Baseline Model**: Enhanced BERT model with cross-attention for comparison
 - **Flexible Model Configuration**: Supports different tasks and training approaches
 - **Contrastive Learning**: Pretrain on large datasets for better transfer
 - **Multiple NLP Tasks**: Supports entailment, similarity, and binary classification

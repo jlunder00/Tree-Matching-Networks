@@ -1,3 +1,5 @@
+[//]: # (Authored by: Jason Lunder, github: https://github.com/jlunder00)
+
 # Linguistic Tree Matching Networks
 
 This module contains an adaptation of Graph Matching Networks (GMN) for linguistic dependency trees, specifically focused on natural language inference and semantic similarity tasks. It leverages the TMN_DataGen package for preprocessing text into tree format.
