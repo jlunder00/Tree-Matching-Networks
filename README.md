@@ -61,7 +61,7 @@ Before using the models, you'll need:
    - Set path in configuration files
 
 4. **Custom BERT Tokenizer** (for BERT models): Train a tokenizer on your text corpus:
-   - See [LinguisticTrees README](https://github.com/jlunder00/Tree-Matching-Networks/tree/main/Tree_Matching_Networks/LinguisticTrees/README.md#bert-tokenizer-setup) for instructions
+   - See [LinguisticTrees README](https://github.com/jlunder00/Tree-Matching-Networks/tree/main/Tree_Matching_Networks/LinguisticTrees#bert-tokenizer-setup) for instructions
    - Set `tokenizer_path` in BERT model configuration
 
 ## Quick Start
