@@ -247,9 +247,9 @@ Both models were trained and evaluated on the SNLI entailment task. The results 
 
 | Model | Parameters | SNLI Test Accuracy | Notes |
 |-------|------------|-------------------|-------|
-| Tree Matching Network  | ~36M | 60.2% | Good at contradiction/entailment separation |
-| Tree Matching Network  | ~60K | ~60.0% | Original smaller model |
-| BERT + Cross-Attention | ~41M | 35.4% | Heavily biased toward entailment prediction |
+| Tree Matching Network | ~36M | 60.2% | Good at contradiction/entailment separation |
+| Tree Matching Network | ~60K | ~60.0% | Original smaller model |
+| BERT Matching Network | ~41M | 35.4% | Heavily biased toward entailment prediction |
 | EFL + RoBERTa-large from Wang et al., '21 | 355M | ~90% | SOTA baseline |
 
 ### Confusion Matrices
@@ -264,11 +264,11 @@ The Large TMN model shows balanced performance across classes with strong contra
 
 The Small TMN model shows very similar performance, suggesting a limitation in the architecture.
 
-**BERT Model Results:**
+**BERT Matching Model Results:**
 
-![BERT Entailment Confusion Matrix](bert_entailment_confusion_matrix.png)
+![BERT Matching Entailment Confusion Matrix](bert_matching_entailment_confusion_matrix.png)
 
-The BERT model exhibits severe bias, predicting entailment for nearly all examples, indicating it was unable to learn under the same conditions as the TMN model.
+The BERT Matching model exhibits severe bias, predicting entailment for nearly all examples, indicating it was unable to learn under the same conditions as the TMN model.
 
 ### Key Findings
 
@@ -279,14 +279,14 @@ The BERT model exhibits severe bias, predicting entailment for nearly all exampl
 - Cross-graph attention captures inter-sentence relationships effectively
 
 **Current Limitations:**
-- Neutral class confusion (likely dataset issue)
+- Neutral class confusion
 - Larger model versions didn't improve over smaller ones (scaling plateau)
 - May need architectural improvements for better parameter utilization
 
-**BERT Model Issues:**
+**BERT Matching Model Issues:**
 - Severe bias toward predicting entailment
 - Poor overall performance despite similar parameter count to TMN  
-- Cross-attention modification insufficient to compete with tree structure
+- Cross-attention modification insufficient to compete with tree structure, or perhaps was detrimental compared to non matching BERT (TBD)
 
 ### Scaling Analysis
 
