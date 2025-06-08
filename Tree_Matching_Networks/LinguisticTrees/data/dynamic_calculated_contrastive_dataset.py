@@ -1,8 +1,8 @@
 # Authored by: Jason Lunder, Github: https://github.com/jlunder00/
 
-#Maybe not so legacy... paired_groups_dataset and the associated text level loss can handle infonce for single sentence style data, and for other types
-#BUT, this is still needed for pretraining as it stands. paired_groups_dataset doesnt have a good way to handle the pair organization we want in pretraining
-#TODO: reconcile both into a simplified heirarchy
+# Maybe not so legacy... paired_groups_dataset and the associated text level loss can handle infonce for single sentence style data, and for other types
+# BUT, this is still needed for pretraining as it stands. paired_groups_dataset doesnt have a good way to handle the pair organization we want in pretraining
+# TODO: reconcile both into a simplified heirarchy
 # data/dynamic_calculated_contrastive_dataset.py
 import numpy as np
 import json

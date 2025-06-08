@@ -102,21 +102,23 @@ wandb login
 
 ### Model Types
 
-- **TreeMatchingNet**: Uses cross-graph attention to compare trees directly.
+- **TreeMatchingNet**: Uses cross-graph attention to compare trees directly. Processes on pairs.
 - **TreeEmbeddingNet**: Creates independent embeddings for each tree.
+- **BertMatchingNet**: Bert augmented with cross attention between hidden states after each transformer layer. Processes on pairs.
+- **BertEmbeddingNet**: Simple Bert but configurable with the same parameters (Todo: ensure training pipeline supports)
 
 ### Loss Types
 
 The loss choice depends on your task type:
 
-1. **Text-Level Losses** (Current)
+1. **Text-Level Losses** (These use aggregated embeddings across multiple sentences from the same text to compare)
    - `TextLevelSimilarityLoss`: For semantic similarity (regression)
    - `TextLevelEntailmentLoss`: For the entailment task
    - `TextLevelBinaryLoss`: For binary classification
    - `TextLevelContrastiveLoss`: For contrastive learning with custom infonce, controlled by weights in config
 
-2. **Legacy Losses**
-   - `InfoNCELoss`: Original contrastive loss
+2. **Strict Sentence Pair Losses** (These compare single embeddings from individual sentences extracted out of texts)
+   - `InfoNCELoss`: Contrastive loss - for pretraining
    - `SimilarityLoss`: Direct similarity scoring
    - `EntailmentLoss`: Classification approach
 
@@ -131,15 +133,24 @@ Each task uses a different loss function and evaluation metrics:
 
 ## Data Handling
 
-The `PairedGroupsDataset` is the primary data handler. It:
-1. Loads preprocessed tree data from TMN_DataGen
+The `PairedGroupsDataset` is the primary data handler for already pretrained models. It:
+1. Loads preprocessed tree data from TMN_DataGen, or line by line text data (for BERT)
 2. Handles tree aggregation for text-level processing
 3. Supports both direct labeled learning and contrastive learning
 
+The `DynamicCalculatedContrastiveDataset` is the data handler for pretraining models. It:
+1. Loads preprocessed tree data from TMN_DataGen, or line by line text data (for BERT)
+2. Handles pair organization with variable positive/negative pairing for contrastive pretraining
+3. Supports only contrastive learning
+
 ## Training
 
-To train a model, use:
+To pretrain a model (recommended if starting from scratch), use:
 
+```bash
+python -m Tree_Matching_Networks.LinguisticTrees.experiments.train_unified \
+  --config configs/experiment_configs/contrastive_config.yaml
+```
 ```bash
 python -m Tree_Matching_Networks.LinguisticTrees.experiments.train_aggregated \
   --config configs/experiment_configs/aggregative_config.yaml

@@ -55,22 +55,16 @@ def train_unified(args):
     Args:
         args: Command-line arguments including config paths, training mode, etc.
     """
-    #==========================================================================
-    # Phase 1: Configuration & Experiment Setup
-    #==========================================================================
     
-    # 1.1 Initial config loading
     logger.info(f"Initializing unified training with mode: {args.mode}")
     base_config = None
     override_config = None
     
-    # 1.2 Load base config
     base_config_path = args.config
     if base_config_path:
         with open(base_config_path, 'r') as fin:
             base_config = yaml.safe_load(fin)
     else:
-        # Default config paths based on mode
         if args.mode == 'contrastive':
             base_config_path = Path('/home/jlunder/research/Tree-Matching-Networks/Tree_Matching_Networks/LinguisticTrees/configs/experiment_configs/contrastive_config.yaml')
         else:  # aggregative
@@ -78,12 +72,10 @@ def train_unified(args):
         with open(base_config_path, 'r') as fin:
             base_config = yaml.safe_load(fin)
     
-    # 1.3 Load override config if provided
     if args.override:
         with open(args.override, 'r') as fin:
             override_config = yaml.safe_load(fin)
     
-    # 1.4 Handle resuming from checkpoint
     start_epoch = 0
     if args.resume:
         logger.info(f"Resuming from checkpoint: {args.resume}")
@@ -101,11 +93,9 @@ def train_unified(args):
             start_epoch = checkpoint['epoch'] + 1
             logger.info(f"Resuming from epoch {start_epoch}")
     else:
-        # Create fresh experiment
         task_type = args.task_type if args.task_type else base_config['model']['task_type']
         experiment = ExperimentManager(task_type, base_config, override_config)
     
-    # 1.5 Get final merged configuration
     logger.info("Finalizing configuration")
     config = get_tree_config(
         task_type=args.task_type if args.task_type else 'infonce',
@@ -113,7 +103,6 @@ def train_unified(args):
         override_config=override_config
     )
     
-    # 1.6 Initialize WandB
     is_sweep_run = wandb.run is not None and wandb.run.name is not None
     
     if not is_sweep_run:
@@ -127,14 +116,8 @@ def train_unified(args):
         # Update experiment tags if in a sweep
         wandb.run.tags = list(set(wandb.run.tags) | set([args.mode, *config['wandb'].get('tags', [])]))
     
-    #==========================================================================
-    # Phase 2: Data Configuration
-    #==========================================================================
-    
-    # 2.1 Set up data configuration
     logger.info("Setting up data configuration")
     
-    # 2.2 Handle custom data root if provided
     if args.data_root:
         data_config = TreeDataConfig(
             data_root=args.data_root,
@@ -155,10 +138,10 @@ def train_unified(args):
             allow_cross_dataset_negatives=config.get('data', {}).get('allow_cross_dataset_negatives', True)
         )
     
-    # 2.3 Set up common dataset parameters
     logger.info("Preparing dataset parameters")
     text_mode = config.get('text_mode', False)
     allow_text_files = config.get('allow_text_files', False)
+
     # Force text_mode if allow_text_files is enabled
     if allow_text_files and not text_mode:
         logger.warning("allow_text_files is True but text_mode is False. Forcing text_mode to True")
@@ -166,16 +149,12 @@ def train_unified(args):
         config['text_mode'] = True
     tokenizer = None
     
-    #==========================================================================
-    # Phase 3: Model Initialization
-    #==========================================================================
-    
-    # 3.1 Initialize text model or graph model based on config
+
+
     logger.info(f"Initializing model (text_mode: {text_mode})")
     
     model_type = config['model'].get('model_type', 'matching')
     if text_mode:
-        # Text mode - initialize BERT or other transformer model
         from transformers import AutoTokenizer
         
         tokenizer_path = config['model']['bert'].get('tokenizer_path', 'bert-base-uncased')
@@ -189,7 +168,6 @@ def train_unified(args):
 
         
     else:
-        # Graph mode - initialize TreeMatchingNet or TreeEmbeddingNet
         logger.info(f"Creating {model_type} graph model")
         
         if model_type == 'embedding':
@@ -198,7 +176,6 @@ def train_unified(args):
             model = TreeMatchingNet(config).to(config['device'])
         config['model_name'] = 'graph'
     
-    # 3.2 Initialize optimizer
     logger.info("Initializing optimizer")
     optimizer = torch.optim.Adam(
         model.parameters(),
@@ -206,7 +183,6 @@ def train_unified(args):
         weight_decay=config['train']['weight_decay']
     )
     
-    # 3.3 Load checkpoint state if resuming
     if args.resume:
         logger.info("Loading model and optimizer state from checkpoint")
         model.load_state_dict(checkpoint['model_state_dict'])
@@ -217,16 +193,10 @@ def train_unified(args):
             for k, v in checkpoint['best_metrics'].items():
                 wandb.run.summary[f"best_{k}"] = v
     
-    #==========================================================================
-    # Phase 4: Dataset Creation
-    #==========================================================================
-    
-    # 4.1 Set up label mapping
     logger.info("Creating datasets")
     label_map = {'-': 1.0, 'entailment':1.0, 'neutral':0.0, 'contradiction':-1.0, 
                 '0': 0.0, '0.0':0.0, 0:0.0, '1':1.0, '1.0':1.0, 1:1.0}
     
-    # 4.2 Configure label normalization if needed
     label_norm = None
     task_type = config['model']['task_type']
     dataset_type = config['data']['dataset_type']
@@ -237,13 +207,11 @@ def train_unified(args):
         label_norm = {'old': (0, 1), 'new': (-1, 1)}
     
     prefetch = config['data'].get("prefetch_factor", 2)
-    # 4.3 Create appropriate datasets based on training mode
+
     if args.mode == 'contrastive':
-        # Contrastive mode - use DynamicCalculatedContrastiveDataset
         logger.info("Creating contrastive datasets")
         
         train_dataset = DynamicCalculatedContrastiveDataset(
-            # data_dir=[str(path) for path in data_config.train_paths],
             data_dir=[str(path) for path in data_config.train_paths],
             config=config,
             batch_size=config['data']['batch_size'],  
@@ -281,7 +249,6 @@ def train_unified(args):
             max_length=config['model']['bert'].get('max_position_embeddings', 512)
         )
     else:
-        # Aggregative mode - use paired groups dataset
         logger.info("Creating aggregative datasets")
         
         train_dataset = create_paired_groups_dataset(
@@ -322,11 +289,6 @@ def train_unified(args):
             max_length=config['model']['bert'].get('max_position_embeddings', 512)
         )
     
-    #==========================================================================
-    # Phase 5: Training Loop
-    #==========================================================================
-    
-    # 5.1 Initialize training state
     logger.info("Starting training loop")
     best_val_loss = float('inf') if not args.resume else checkpoint.get('best_val_loss', float('inf'))
     patience_counter = 0
@@ -336,16 +298,13 @@ def train_unified(args):
         train_dataset.set_pairing_ratio(r)
         val_dataset.set_pairing_ratio(r)
         print("using random for first epoch")
-    # 5.2 Training epochs
     for epoch in range(start_epoch, config['train']['n_epochs']):
         logger.info(f"Starting epoch {epoch}/{config['train']['n_epochs']}")
         if args.mode == 'contrastive':
             print(f"RATIO IS: {train_dataset.get_pairing_ratio()}")
         
-        # 5.3 Train for one epoch
         train_metrics = train_epoch(model, train_dataset, optimizer, config, epoch)
         
-        # 5.4 Validate
         val_metrics = validate_epoch(model, val_dataset, config, epoch)
         if args.mode == 'contrastive':
             if epoch + 1 < 16 and epoch+1 % 4 == 0 and train_dataset.get_pairing_ratio() > 0.0:
@@ -363,7 +322,6 @@ def train_unified(args):
                 val_dataset.set_pairing_ratio(r)
                 print("random per batch")
         
-        # 5.5 Log metrics
         metrics = {
             'epoch': epoch,
             'train': train_metrics,
@@ -372,12 +330,10 @@ def train_unified(args):
         }
         wandb.log(metrics)
         
-        # 5.6 Save checkpoint
         experiment.save_checkpoint(
             model, optimizer, epoch, metrics
         )
         
-        # 5.7 Early stopping based on validation loss
         if val_metrics['loss'] < best_val_loss:
             best_val_loss = val_metrics['loss']
             experiment.save_best_model(
@@ -397,7 +353,6 @@ def train_unified(args):
     wandb.finish()
 
 if __name__ == '__main__':
-    # Parse command line arguments
     parser = argparse.ArgumentParser(description='Unified training for tree matching models')
     parser.add_argument('--config', type=str,
                       help='Base config path', default=None)
@@ -420,7 +375,6 @@ if __name__ == '__main__':
     
     args = parser.parse_args()
     
-    # Setup logging
     logging.basicConfig(
         level=logging.DEBUG if args.debug else logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
