@@ -1,3 +1,5 @@
+# Authored by: Jason Lunder, Github: https://github.com/jlunder00/
+
 import json
 import torch
 from torch.utils.data import IterableDataset
@@ -7,7 +9,6 @@ from tqdm import tqdm
 from typing import List, Iterator, Optional
 import yaml
 
-# Import your TreeDataConfig
 from Tree_Matching_Networks.LinguisticTrees.configs.tree_data_config import TreeDataConfig
 
 class StreamingTextDataset(IterableDataset):

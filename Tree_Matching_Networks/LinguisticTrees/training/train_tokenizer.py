@@ -1,3 +1,5 @@
+# Authored by: Jason Lunder, Github: https://github.com/jlunder00/
+
 from tokenizers import BertWordPieceTokenizer, WordPieceTrainer
 import os
 

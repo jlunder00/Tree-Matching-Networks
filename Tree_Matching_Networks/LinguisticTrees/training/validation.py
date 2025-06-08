@@ -20,32 +20,13 @@ logger = logging.getLogger(__name__)
 @torch.no_grad()
 def validate_step_bert(model, batch_encoding, batch_info, loss_fn, device, config):
     try:
-        # if (isinstance(batch_encoding, tuple) or isinstance(batch_encoding, list)) and len(batch_encoding) == 2 and all(isinstance(x, dict) for x in batch_encoding):
-            # BERT Matching: tuple of (batch_encoding_a, batch_encoding_b)
-            # batch_encoding_a, batch_encoding_b = batch_encoding
             
         # Move to device
-        # batch_encoding_a = {k: v.to(device, non_blocking=True) for k, v in batch_encoding_a.items()}
         batch_encoding = {k: v.to(device, non_blocking=True) for k, v in batch_encoding.items()}
         
         # Forward pass
-        # embed_a, embed_b = model(batch_encoding_a, batch_encoding_b)
         embeddings = model(batch_encoding)
         
-        # Interleave embeddings to match expected format
-        # embeddings = torch.stack([embed_a, embed_b], dim=1).view(-1, embed_a.shape[-1])
-            
-        # else:
-        #     # Move batch encoding to device
-        #     batch_encoding = {k: v.to(device, non_blocking=True) for k, v in batch_encoding.items()}
-        #     
-        #     # Forward pass through BERT
-        #     # Note: BERT takes single sentences and produces single embeddings
-        #     # Unlike tree_matching which takes pairs and produces pairs
-        #     embeddings = model(**batch_encoding)
-        
-        # The embeddings are now in the same format expected by your loss functions
-        # [batch_size, hidden_dim] with the indices corresponding to batch_info
         loss, predictions, metrics = loss_fn(embeddings, batch_info)
         del batch_encoding
         del embeddings
@@ -89,28 +70,6 @@ def validate_step_contrastive_graph(model, X, device):
 def validate_step_contrastive_bert(model, X, device):
     X = {k: v.to(device, non_blocking=True) for k, v in X.items()}
     embeddings = model(X)
-    # if (isinstance(X, tuple) or isinstance(X, list)) and len(X) == 2 and all(isinstance(x, dict) for x in X):
-    #     # BERT Matching: tuple of (X_a, X_b)
-    #     X_a, X_b = X
-    #     
-    #     # Move to device
-    #     X_a = {k: v.to(device, non_blocking=True) for k, v in X_a.items()}
-    #     X_b = {k: v.to(device, non_blocking=True) for k, v in X_b.items()}
-    #     
-    #     # Forward pass
-    #     embed_a, embed_b = model(X_a, X_b)
-    #     
-    #     # Interleave embeddings to match expected format
-    #     embeddings = torch.stack([embed_a, embed_b], dim=1).view(-1, embed_a.shape[-1])
-    #     
-    # else:
-    #     # Move batch encoding to device
-    #     X = {k: v.to(device, non_blocking=True) for k, v in X.items()}
-    #     
-    #     # Forward pass through BERT
-    #     # Note: BERT takes single sentences and produces single embeddings
-    #     # Unlike tree_matching which takes pairs and produces pairs
-    #     embeddings = model(**X)
     return embeddings
     
 
@@ -403,13 +362,6 @@ def validate_step(model, X, batch_info, loss_fn, device, config):
         embeddings = forward_step_handlers[config['model_name']](model, X, device)
         loss, predictions, metrics = loss_fn(embeddings, batch_info)
         
-        # Compute metrics based on task
-        # if config['model']['task_type'] == 'similarity':
-        #     x, y = outputs[::2], outputs[1::2]
-        #     loss, predictions, metrics = loss_fn(x, y, batch_info)
-        #     del x, y
-        # else:  # entailment
-        #     loss, predictions, metrics = loss_fn(outputs, batch_info)
         loss, predictions, metrics = loss_fn(embeddings, batch_info)
         
         # Cleanup
@@ -427,55 +379,6 @@ def validate_step(model, X, batch_info, loss_fn, device, config):
         else:
             raise
 
-# def validate_step(model, graphs, labels, loss_fn, device, config):
-#     """Single validation step with memory management"""
-#     try:
-#         # Move data to device
-#         graphs = GraphData(
-#             node_features=graphs.node_features.to(device, non_blocking=True),
-#             edge_features=graphs.edge_features.to(device, non_blocking=True),
-#             from_idx=graphs.from_idx.to(device, non_blocking=True),
-#             to_idx=graphs.to_idx.to(device, non_blocking=True),
-#             graph_idx=graphs.graph_idx.to(device, non_blocking=True),
-#             n_graphs=graphs.n_graphs
-#         )
-#         labels = labels.to(device, non_blocking=True)
-#         
-#         # Forward pass
-#         graph_vectors = model(
-#             graphs.node_features,
-#             graphs.edge_features,
-#             graphs.from_idx,
-#             graphs.to_idx,
-#             graphs.graph_idx,
-#             graphs.n_graphs
-#         )
-#         
-#         # Split vectors and compute metrics
-#         # x, y = graph_vectors[::2], graph_vectors[1::2]
-#         # loss, predictions, metrics = loss_fn(x, y, labels)
-#         if config['model']['task_type'] == 'similarity':
-#             x, y = graph_vectors[::2], graph_vectors[1::2]
-#             loss, predictions, metrics = loss_fn(x, y, labels)
-#             del x
-#             del y
-#         else:  # entailment
-#             loss, predictions, metrics = loss_fn(graph_vectors, labels)
-#         
-#         # Cleanup
-#         del graphs
-#         del graph_vectors
-#         torch.cuda.empty_cache()
-#         
-#         return loss.item(), predictions, metrics
-#         
-#     except RuntimeError as e:
-#         if "out of memory" in str(e):
-#             logger.error("OOM during validation step")
-#             torch.cuda.empty_cache()
-#             raise
-#         else:
-#             raise
 
 @torch.no_grad()
 def validate_epoch(model, dataset, config, epoch):
@@ -506,12 +409,6 @@ def validate_epoch(model, dataset, config, epoch):
             'batch_time': 0.0
         }
     
-    # Create loss function
-    # loss_fn = TreeMatchingLoss(
-    #     device=device,
-    #     task_type=config['model']['task_type'],
-    #     **config['model'].get('loss_params', {})
-    # ).to(device, non_blocking=True)
     loss_loader = 'other' if task_loader_type != 'aggregative' else task_loader_type
     loss_fn = loss_handlers[task_type][loss_loader](
         device = device,

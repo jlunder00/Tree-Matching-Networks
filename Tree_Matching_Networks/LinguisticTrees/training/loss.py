@@ -1,6 +1,6 @@
 # Authored by: Jason Lunder, Github: https://github.com/jlunder00/
 
-#only the TextLevel losses are used, and the InfoNCELoss can be used for pretraining with some modifications.
+#only the TextLevel losses are used for primary training and fine tuning, InfoNCELoss is used for pretraining.
 #training/loss.py
 import torch
 import torch.nn as nn
