@@ -149,12 +149,28 @@ To pretrain a model (recommended if starting from scratch), use:
 
 ```bash
 python -m Tree_Matching_Networks.LinguisticTrees.experiments.train_unified \
-  --config configs/experiment_configs/contrastive_config.yaml
+  --config configs/experiment_configs/contrastive_config.yaml \
+  --mode constrastive \
+  --data_root /path/to/data/folder/ \
+  --task_type infonce
 ```
+Note: data folder should contain folders dev, train, and test, each containing folders for each dataset, like:
+```
+dev/snli_1.0_dev_converted_sm/
+test/snl1_1.0_test_converted_sm/
+train/snli_1.0_train_converted_sm/
+```
+So the format is like: `{dataset_name}_{split}_converted_{spacy_variant}`, see tree_data_config.py for more details. TODO: simplify this structure    
+
+And for training a model in primary training/fine tuning:
 ```bash
-python -m Tree_Matching_Networks.LinguisticTrees.experiments.train_aggregated \
-  --config configs/experiment_configs/aggregative_config.yaml
+python -m Tree_Matching_Networks.LinguisticTrees.experiments.train_unified \
+  --config configs/experiment_configs/aggregative_config.yaml \
+  --mode aggregative \
+  --data_root /path/to/data/folder/ \
+  --task_type <one of infonce, similarity, entailment, etc.>
 ```
+Control of the model sizes and data used is done through the config files, more details on how to use those (insert anchor link to config explanation)
 
 ### Training Arguments
 
