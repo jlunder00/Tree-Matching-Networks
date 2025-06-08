@@ -61,7 +61,7 @@ Before using the models, you'll need:
    - Set path in configuration files
 
 4. **Custom BERT Tokenizer** (for BERT models): Train a tokenizer on your text corpus:
-   - See [LinguisticTrees README](LinguisticTrees/README.md#bert-tokenizer-setup) for instructions
+   - See [LinguisticTrees README](https://github.com/jlunder00/Tree-Matching-Networks/tree/main/Tree_Matching_Networks/LinguisticTrees/README.md#bert-tokenizer-setup) for instructions
    - Set `tokenizer_path` in BERT model configuration
 
 ## Quick Start
@@ -83,7 +83,7 @@ python -m Tree_Matching_Networks.scripts.demo \
 Note that occasionally the provided config that comes with a checkpoint may not work in the demo script.    
 Providing a config override to an appropriately configured custom config or one such config from Tree_Matching_Networks/LinguisticTrees/configs/experiment_configs/ can resolve this issue.
 
-See [Demo Instructions](scripts/README.md) for more details.
+See [Demo Instructions](https://github.com/jlunder00/Tree-Matching-Networks/tree/main/scripts#demo-script-for-tree-matching-networks) for more details.
 
 ### Data Processing
 
@@ -108,7 +108,7 @@ python -m Tree_Matching_Networks.LinguisticTrees.experiments.train_aggregative \
   --config Tree_Matching_Networks/LinguisticTrees/configs/experiment_configs/aggregative_config.yaml
 ```
 
-See [LinguisticTrees README](Tree_Matching_Networks/LinguisticTrees/README.md) for more configuration options.
+See [LinguisticTrees README](https://github.com/jlunder00/Tree-Matching-Networks/tree/main/Tree_Matching_Networks/LinguisticTrees#linguistic-tree-matching-networks) for more configuration options.
 
 ### Evaluation
 
