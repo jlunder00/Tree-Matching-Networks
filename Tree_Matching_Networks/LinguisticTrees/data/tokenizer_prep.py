@@ -329,6 +329,7 @@ if __name__ == "__main__":
     
     # Define delimiters to remove
     delimiters = [" q:", " a:"]  
+    tokenizer_save_path = "/home/jlunder/local_storage/tokenizers/combined_tokenizer_10000_2.json"
     
     tokenizer = train_tokenizer_from_multiple_sources(
         configs=configs,
@@ -339,8 +340,8 @@ if __name__ == "__main__":
         min_frequency=2,
         batch_size=1000,
         max_samples=None,  
-        tokenizer_save_path="/home/jlunder/local_storage/tokenizers/combined_tokenizer_10000_2.json"
+        tokenizer_save_path=tokenizer_save_path
     )
     
-    convert_to_transformers_tokenizer("/home/jlunder/local_storage/tokenizers/combined_tokenizer_10000_2.json")
+    convert_to_transformers_tokenizer(tokenizer_save_path)
 
