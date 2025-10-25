@@ -625,7 +625,25 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
 
         if self.text_mode:
             model_type = self.config['model'].get('model_type', 'embedding')
-            if model_type == 'matching':
+            if model_type == 'embedding':
+                # For embedding models, process texts individually
+                text_encodings = []
+                for tree in batch_trees:
+                    text = tree.get('text', '')
+                    encoding = self._tokenize_text(text)
+                    text_encodings.append(encoding)
+                
+                if text_encodings:
+                    batch_encoded = {k: torch.stack([enc[k] for enc in text_encodings]) 
+                                   for k in text_encodings[0].keys()}
+                else:
+                    batch_encoded = {
+                        'input_ids': torch.zeros((0, self.max_length), dtype=torch.long),
+                        'attention_mask': torch.zeros((0, self.max_length), dtype=torch.long),
+                        'token_type_ids': torch.zeros((0, self.max_length), dtype=torch.long)
+                    }
+                output = batch_encoded
+            elif model_type == 'matching':
                 all_pair_info = []  # Track which indices form pairs
                 anchor_positive_indexes = {}
                 # For matching models, we need to tokenize pairs separately

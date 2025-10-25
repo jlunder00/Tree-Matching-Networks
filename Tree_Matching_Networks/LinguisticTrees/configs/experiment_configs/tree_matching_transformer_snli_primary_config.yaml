@@ -1,0 +1,125 @@
+# Primary training config for TMN MATCHING model with TRANSFORMER AGGREGATION on SNLI entailment
+# Loads from pretraining checkpoint trained with tree_matching_transformer_contrastive_config.yaml
+
+text_mode: False
+allow_text_files: False
+
+model:
+  task_type: infonce
+  task_loader_type: aggregative
+  name: tree_matching           # Tree architecture
+  model_type: matching          # MATCHING MODEL (has cross-graph attention)
+
+  # BERT config - required even for TMN models due to config system
+  bert:
+    hidden_size: 1024
+    num_hidden_layers: 4
+    num_attention_heads: 16
+    intermediate_size: 2048
+    max_position_embeddings: 384
+    tokenizer_path: /home/jlunder/local_storage/tokenizers/bert-tokenizer5000_5/
+    project: False
+
+  # Graph architecture - MUST match pretraining config exactly
+  graph:
+    node_feature_dim: 804
+    edge_feature_dim: 70
+    node_state_dim: 768       # OPTIMIZED for 40M parameters with 2 transformer layers
+    edge_state_dim: 256       # Reduced to save parameters
+
+    # Hidden size multiplier - controls final layer size in propagation
+    # 2.0x for matching models maintains cross-attention capacity
+    hidden_size_multiplier: 2.0
+
+    edge_hidden_sizes:
+      - 256      # Match edge_state_dim
+      - 512      # Intermediate layer (proportional)
+    node_hidden_sizes:
+      - 768      # Match node_state_dim
+      - 768      # Match node_state_dim
+    graph_rep_dim: 2048
+    graph_transform_sizes:
+      - 768
+      - 768
+    edge_net_init_scale: 0.1
+    reverse_dir_param_different: false
+    use_reverse_direction: true
+    share_prop_params: true
+    n_prop_layers: 5          # Keep at 5 for matching models
+
+    # TRANSFORMER AGGREGATION CONFIGURATION
+    transformer:
+      # Enable transformer-based aggregation (replaces pooling)
+      use_transformer_aggregation: true
+
+      # Attention mechanism parameters
+      max_nodes: 64                      # Maximum nodes per tree (padding limit)
+      num_heads: 8                       # Multi-head attention heads
+      num_layers: 2                      # Transformer encoder layers
+      dropout: 0.1                       # Dropout rate
+
+      # Tree shape positional encoding features
+      positional_features:
+        - depth
+        - num_siblings
+        - num_children
+        - num_grandparent_children
+        - subtree_size
+        - parent_num_children
+        - distance_to_leaf
+        - nodes_at_level
+
+      # Maximum values for positional features (for normalization)
+      positional_max_values:
+        depth: 15
+        num_siblings: 10
+        num_children: 10
+        num_grandparent_children: 10
+        subtree_size: 40
+        parent_num_children: 10
+        distance_to_leaf: 10
+        nodes_at_level: 20
+
+  temperature: 0.05
+  aggregation: attention
+
+  # Multi-goal contrastive learning weights for 3-class entailment
+  # Entailment (positive), Contradiction (negative), Neutral (midpoint)
+  positive_infonce_weight: 0.55    # Entailment pairs
+  inverse_infonce_weight: 0.30     # Contradiction pairs
+  midpoint_infonce_weight: 0.15    # Neutral pairs
+  thresh_low: -0.33                # Contradiction threshold
+  thresh_high: 0.33                # Entailment threshold
+
+data:
+  dataset_type: snli
+  batch_size: 256                  # Match pretraining batch size
+  strict_matching: False
+  min_trees_per_group: 1
+  num_workers_train: 0
+  num_workers_val: 0
+  prefetch_factor: 0
+  max_batches_per_epoch: 1000
+  contrastive_mode: False          # Aggregative mode
+  allow_negatives: True            # Include contradiction samples
+  allow_neutrals: True             # Include neutral samples
+  allow_positives: True            # Include entailment samples
+  num_workers: 0
+
+embedding_cache_dir: '/home/jlunder/research/TMN_DataGen/embedding_cache5/'
+use_gpu: false
+
+train:
+  learning_rate: 0.000001          # Start with same as pretraining
+  weight_decay: 0.00001
+  n_epochs: 200                    # Fewer epochs for fine-tuning
+  patience: 15                     # Higher patience for primary training
+  gradient_accumulation_steps: 1
+  clip_value: 1.0
+  cleanup_interval: 5
+
+wandb:
+  project: tree-matching-transformer
+  tags: [aggregative, matching, snli, primary, transformer]
+  log_interval: 10
+  memory_logging: true

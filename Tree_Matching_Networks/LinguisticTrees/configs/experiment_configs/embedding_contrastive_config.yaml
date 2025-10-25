@@ -1,0 +1,125 @@
+# Authored by: Jason Lunder, Github: https://github.com/jlunder00/
+# Embedding Models Contrastive Pretraining Config
+# Switch between TreeEmbeddingNet and BertEmbeddingNet by changing text_mode
+# TreeEmbeddingNet: text_mode: False
+# BertEmbeddingNet: text_mode: True
+
+text_mode: False  # CHANGE THIS: False=TreeEmbeddingNet, True=BertEmbeddingNet
+allow_text_files: False
+model:
+  task_type: infonce
+  task_loader_type: contrastive
+  model_type: embedding  # Key parameter for embedding variants
+  name: tree_embedding
+  
+  bert:
+    hidden_size: 1024
+    num_hidden_layers: 4
+    num_attention_heads: 16
+    intermediate_size: 2048
+    max_position_embeddings: 384
+    tokenizer_path: /home/jlunder/local_storage/tokenizers/bert-tokenizer5000_5/
+    project: False
+  
+  graph:
+    node_feature_dim: 804
+    edge_feature_dim: 70
+    node_state_dim: 1536
+    edge_state_dim: 768
+    edge_hidden_sizes: 
+      - 768
+      - 1024
+    node_hidden_sizes: 
+      - 1536
+      - 1536
+    
+    graph_rep_dim: 2048
+    graph_transform_sizes: 
+      - 1536
+      - 1536
+
+    edge_net_init_scale: 0.1
+    reverse_dir_param_different: false
+    use_reverse_direction: true
+    share_prop_params: true
+    n_prop_layers: 5
+  
+  temperature: 0.05
+
+data:
+  dataset_type: wikiqs
+  dataset_specs: 
+    - wikiqs
+    - amazonqa_single/Electronics
+    - amazonqa_single/Baby
+    - amazonqa_multiple/Baby
+    - amazonqa_multiple/Electronics
+    - amazonqa_single/Home_and_Kitchen
+    - amazonqa_single/Industrial_and_Scientific
+    - amazonqa_single/Sports_and_Outdoors
+    - amazonqa_single/Appliances
+    - amazonqa_single/Arts_Crafts_and_Sewing
+    - amazonqa_single/Automotive
+    - amazonqa_single/Beauty
+    - amazonqa_single/Cell_Phones_and_Accessories
+    - amazonqa_single/Clothing_Shoes_and_Jewelry
+    - amazonqa_single/Grocery_and_Gourmet_Food
+    - amazonqa_single/Health_and_Personal_Care
+    - amazonqa_single/Musical_Instruments
+    - amazonqa_single/Office_Products
+    - amazonqa_single/Patio_Lawn_and_Garden
+    - amazonqa_single/Pet_Supplies
+    - amazonqa_single/Software
+    - amazonqa_single/Tools_and_Home_Improvement
+    - amazonqa_single/Toys_and_Games
+    - amazonqa_single/Video_Games
+    - amazonqa_multiple/Home_and_Kitchen
+    - amazonqa_multiple/Industrial_and_Scientific
+    - amazonqa_multiple/Sports_and_Outdoors
+    - amazonqa_multiple/Appliances
+    - amazonqa_multiple/Arts_Crafts_and_Sewing
+    - amazonqa_multiple/Automotive
+    - amazonqa_multiple/Beauty
+    - amazonqa_multiple/Cell_Phones_and_Accessories
+    - amazonqa_multiple/Clothing_Shoes_and_Jewelry
+    - amazonqa_multiple/Grocery_and_Gourmet_Food
+    - amazonqa_multiple/Health_and_Personal_Care
+    - amazonqa_multiple/Musical_Instruments
+    - amazonqa_multiple/Office_Products
+    - amazonqa_multiple/Patio_Lawn_and_Garden
+    - amazonqa_multiple/Pet_Supplies
+    - amazonqa_multiple/Software
+    - amazonqa_multiple/Tools_and_Home_Improvement
+    - amazonqa_multiple/Toys_and_Games
+    - amazonqa_multiple/Video_Games
+  allow_cross_dataset_negatives: true
+  batch_size: 256 
+  strict_matching: False
+  pos_pairs_per_anchor: 1
+  neg_pairs_per_anchor: 10
+  min_groups_per_batch: 8
+  anchors_per_group: 1
+  num_workers: 2
+  positive_pairing_ratio: 1.0
+  ensure_positives_in_batch: True
+  prefetch_factor: 2
+  max_batches_per_epoch: 100
+  max_text_chars: 500
+
+embedding_cache_dir: '/home/jlunder/research/TMN_DataGen/embedding_cache5/'
+use_gpu: false
+
+train:
+  learning_rate: 0.000001
+  weight_decay: 0.00001
+  n_epochs: 500
+  patience: 10
+  gradient_accumulation_steps: 1
+  clip_value: 1.0
+  cleanup_interval: 5
+
+wandb:
+  project: tree-embedding
+  tags: [contrastive, embedding, wikiqs_amazonqa]
+  log_interval: 10
+  memory_logging: true

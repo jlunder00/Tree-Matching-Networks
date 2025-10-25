@@ -16,10 +16,14 @@ class TreeMatchingNet(nn.Module):
         edge_feature_dim = config['model']['graph']['edge_feature_dim']
         node_state_dim = config['model']['graph']['node_state_dim']
         edge_state_dim = config['model']['graph']['edge_state_dim']
-        node_hidden_sizes = config['model']['graph']['node_hidden_sizes']
-        node_hidden_sizes.append(node_state_dim*2)
-        edge_hidden_sizes = config['model']['graph']['edge_hidden_sizes']
-        edge_hidden_sizes.append(node_state_dim*2)
+
+        # Copy lists from config (don't mutate the config dictionary)
+        # Then append the final expansion layer: node_state_dim * 2
+        # This creates the compress → expand → compress architecture pattern
+        node_hidden_sizes = list(config['model']['graph']['node_hidden_sizes'])
+        node_hidden_sizes.append(node_state_dim * 2)
+        edge_hidden_sizes = list(config['model']['graph']['edge_hidden_sizes'])
+        edge_hidden_sizes.append(node_state_dim * 2)
         graph_rep_dim = config['model']['graph']['graph_rep_dim']
         graph_transform_sizes = config['model']['graph']['graph_transform_sizes']
         edge_net_init_scale = config['model']['graph']['edge_net_init_scale']
@@ -45,13 +49,44 @@ class TreeMatchingNet(nn.Module):
             edge_state_dim=edge_state_dim
             # dropout=config['model'].get('dropout', 0.1)
         )
-        
-        aggregator = GraphAggregator(
-            node_hidden_sizes=[graph_rep_dim],
-            graph_transform_sizes=graph_transform_sizes,
-            input_size=[node_state_dim],
-            gated=True
-        )
+
+        # Create aggregator (either pooling or transformer-based)
+        transformer_config = config['model']['graph'].get('transformer', {})
+        use_transformer = transformer_config.get('use_transformer_aggregation', False)
+
+        if use_transformer:
+            # Use transformer-based aggregation with shape-aware positional encoding
+            from ...GMN.transformer_tree_aggregator import TransformerTreeAggregator
+
+            aggregator = TransformerTreeAggregator(
+                node_state_dim=node_state_dim,
+                graph_rep_dim=graph_rep_dim,
+                max_nodes=transformer_config.get('max_nodes', 64),
+                num_heads=transformer_config.get('num_heads', 8),
+                num_layers=transformer_config.get('num_layers', 2),
+                dropout=transformer_config.get('dropout', 0.1),
+                positional_features=transformer_config.get('positional_features', None),
+                positional_max_values=transformer_config.get('positional_max_values', None)
+            )
+
+            print(f"Using TransformerTreeAggregator:")
+            print(f"  max_nodes: {transformer_config.get('max_nodes', 64)}")
+            print(f"  num_heads: {transformer_config.get('num_heads', 8)}")
+            print(f"  num_layers: {transformer_config.get('num_layers', 2)}")
+            print(f"  positional_features: {transformer_config.get('positional_features', 'all')}")
+        else:
+            # Use standard pooling-based aggregation (default)
+            aggregator = GraphAggregator(
+                node_hidden_sizes=[graph_rep_dim],
+                graph_transform_sizes=graph_transform_sizes,
+                input_size=[node_state_dim],
+                gated=True
+            )
+
+            print(f"Using GraphAggregator (pooling):")
+            print(f"  node hidden sizes: {[graph_rep_dim]}")
+            print(f"  graph transform sizes: {graph_transform_sizes}")
+            print(f"  input size: {[node_state_dim]}")
         if any([use_message_attention, use_aggregation_attention, 
                 use_node_update_attention, use_graph_attention]):
             from ...GMN.graphmatchingnetwork import AttentionGraphMatchingNet

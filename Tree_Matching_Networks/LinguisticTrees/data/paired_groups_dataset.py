@@ -1082,6 +1082,25 @@ class EmbeddingDataset(NonStrictDataset):
             # All trees individually for embedding
             all_trees = [item['tree'] for item in batch_trees]
             return convert_tree_to_graph_data(all_trees)
+    
+    def _process_final_text_data(self, batch_trees, pair_indices):
+        """Process texts individually for embedding models (not as pairs)"""
+        text_encodings = []
+        for tree in batch_trees:
+            text = tree.get('text', '')
+            encoding = self._tokenize_text(text)
+            text_encodings.append(encoding)
+        
+        if text_encodings:
+            return {k: torch.stack([enc[k] for enc in text_encodings]) 
+                    for k in text_encodings[0].keys()}
+        else:
+            # Empty batch fallback
+            return {
+                'input_ids': torch.zeros((0, self.max_length), dtype=torch.long),
+                'attention_mask': torch.zeros((0, self.max_length), dtype=torch.long),
+                'token_type_ids': torch.zeros((0, self.max_length), dtype=torch.long)
+            }
 
 
 class MatchingDataset(NonStrictDataset):

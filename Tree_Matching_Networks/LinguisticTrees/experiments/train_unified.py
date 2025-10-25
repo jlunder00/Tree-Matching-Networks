@@ -227,7 +227,7 @@ def train_unified(args):
             text_mode=text_mode,
             allow_text_files=allow_text_files,
             tokenizer=tokenizer,
-            max_length=config['model']['bert'].get('max_position_embeddings', 512)
+            max_length=config['model'].get('bert', {}).get('max_position_embeddings', 512)
         )
         
         val_dataset = DynamicCalculatedContrastiveDataset(
@@ -246,7 +246,7 @@ def train_unified(args):
             text_mode=text_mode,
             allow_text_files=allow_text_files,
             tokenizer=tokenizer,
-            max_length=config['model']['bert'].get('max_position_embeddings', 512)
+            max_length=config['model'].get('bert', {}).get('max_position_embeddings', 512)
         )
     else:
         logger.info("Creating aggregative datasets")
@@ -267,7 +267,7 @@ def train_unified(args):
             text_mode=text_mode,
             allow_text_files=allow_text_files,
             tokenizer=tokenizer,
-            max_length=config['model']['bert'].get('max_position_embeddings', 512)
+            max_length=config['model'].get('bert', {}).get('max_position_embeddings', 512)
         )
         
         val_dataset = create_paired_groups_dataset(
@@ -286,7 +286,7 @@ def train_unified(args):
             text_mode=text_mode,
             allow_text_files=allow_text_files,
             tokenizer=tokenizer,
-            max_length=config['model']['bert'].get('max_position_embeddings', 512)
+            max_length=config['model'].get('bert', {}).get('max_position_embeddings', 512)
         )
     
     logger.info("Starting training loop")
