@@ -854,15 +854,17 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         node_features = []
         edge_features = []
         last_graph_idx = 0
+        offset = 0
         for i, g in enumerate(graphs):
-            from_idx.append(g.from_idx)
-            to_idx.append(g.to_idx)
+            from_idx.append(g.from_idx+offset)
+            to_idx.append(g.to_idx+offset)
             for j in range(g.n_graphs):
                 n_nodes = len(g.graph_idx[g.graph_idx == j])
                 graph_idx.append(torch.ones(n_nodes, dtype=torch.int64)*last_graph_idx)
                 last_graph_idx += 1
             node_features.append(g.node_features)
             edge_features.append(g.edge_features)
+            offset += len(g.graph_idx)
 
         graph_data = GraphData(
             from_idx=torch.cat(from_idx),
