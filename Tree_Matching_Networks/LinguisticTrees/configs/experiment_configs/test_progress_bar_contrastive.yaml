@@ -1,0 +1,74 @@
+# TEST CONFIG - Verify progress bar works correctly
+# Use very small batch counts to test quickly
+
+text_mode: False
+allow_text_files: False
+
+model:
+  task_type: infonce
+  task_loader_type: contrastive
+  model_type: matching
+  name: tree_matching
+
+  graph:
+    node_feature_dim: 804
+    edge_feature_dim: 70
+    node_state_dim: 1536
+    edge_state_dim: 768
+    edge_hidden_sizes:
+      - 768
+      - 1024
+    node_hidden_sizes:
+      - 1536
+      - 1536
+    graph_rep_dim: 2048
+    graph_transform_sizes:
+      - 1536
+      - 1536
+    edge_net_init_scale: 0.1
+    reverse_dir_param_different: false
+    use_reverse_direction: true
+    share_prop_params: true
+    n_prop_layers: 5
+
+  temperature: 0.05
+  aggregation: attention
+
+data:
+  dataset_type: wikiqs
+  dataset_specs:
+    - wikiqs
+  allow_cross_dataset_negatives: true
+  batch_size: 256
+  strict_matching: False
+  pos_pairs_per_anchor: 1
+  neg_pairs_per_anchor: 10
+  min_groups_per_batch: 8
+  anchors_per_group: 1
+  num_workers: 2
+  positive_pairing_ratio: 1.0
+  ensure_positives_in_batch: True
+  prefetch_factor: 2
+  max_batches_per_epoch: 10  # VERY SMALL FOR TESTING
+  max_text_chars: 500
+
+embedding_cache_dir: '/home/jlunder/research/TMN_DataGen/embedding_cache5/'
+use_gpu: false
+
+train:
+  learning_rate: 0.000001
+  weight_decay: 0.00001
+  n_epochs: 2  # Just 2 epochs for quick test
+  patience: 40
+  gradient_accumulation_steps: 1
+  clip_value: 1.0
+  cleanup_interval: 5
+  base_seed: 42
+  reset_epoch_enabled: true
+  checkpoint_save_frequency: 1  # Save both epochs for testing
+
+wandb:
+  project: tree-embedding
+  tags: [test, progress_bar_verification]
+  log_interval: 1
+  memory_logging: false

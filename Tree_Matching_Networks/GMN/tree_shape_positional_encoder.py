@@ -264,7 +264,7 @@ class TreeShapePositionalEncoder(nn.Module):
         for g in range(n_graphs):
             node_mask = (graph_idx == g)  # Boolean mask for this graph's nodes
             graph_nodes = torch.where(node_mask)[0].tolist()
-            edge_nodes = to_idx
+            # edge_nodes = to_idx
 
             if not graph_nodes:
                 continue

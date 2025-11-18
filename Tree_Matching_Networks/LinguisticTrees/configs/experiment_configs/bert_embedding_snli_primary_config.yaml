@@ -1,16 +1,10 @@
-# Primary training config for BERT embedding model on SNLI entailment
-# Loads from pretraining checkpoint: /home/jlunder/temp_temp_storage/infonce_wikiqs_20250906_091217/checkpoints/best_model.pt
-
-text_mode: True
-allow_text_files: False
-
+text_mode: true
+allow_text_files: false
 model:
   task_type: infonce
   task_loader_type: aggregative
   name: bert_embedding
   model_type: embedding
-  
-  # BERT architecture - MUST match pretraining config exactly
   bert:
     hidden_size: 1024
     num_hidden_layers: 4
@@ -18,70 +12,67 @@ model:
     intermediate_size: 2048
     max_position_embeddings: 384
     tokenizer_path: /home/jlunder/temp_temp_storage/tokenizers/bert-tokenizer5000_5/
-    project: False
-    
-  # Graph architecture (unused for BERT but required in config)
+    project: false
   graph:
     node_feature_dim: 804
     edge_feature_dim: 70
     node_state_dim: 1536
     edge_state_dim: 768
-    edge_hidden_sizes: 
-      - 768
-      - 1024
-    node_hidden_sizes: 
-      - 1536
-      - 1536
+    edge_hidden_sizes:
+    - 768
+    - 1024
+    node_hidden_sizes:
+    - 1536
+    - 1536
     graph_rep_dim: 2048
-    graph_transform_sizes: 
-      - 1536
-      - 1536
+    graph_transform_sizes:
+    - 1536
+    - 1536
     edge_net_init_scale: 0.1
     reverse_dir_param_different: false
     use_reverse_direction: true
     share_prop_params: true
     n_prop_layers: 5
-
   temperature: 0.05
   aggregation: attention
-
-  # Multi-goal contrastive learning weights for 3-class entailment
-  # Entailment (positive), Contradiction (negative), Neutral (midpoint)
-  positive_infonce_weight: 0.55    # Entailment pairs
-  inverse_infonce_weight: 0.30     # Contradiction pairs
-  midpoint_infonce_weight: 0.15    # Neutral pairs
-  thresh_low: -0.33                # Contradiction threshold
-  thresh_high: 0.33                # Entailment threshold
-
+  positive_infonce_weight: 0.55
+  inverse_infonce_weight: 0.3
+  midpoint_infonce_weight: 0.15
+  thresh_low: -0.33
+  thresh_high: 0.33
 data:
   dataset_type: snli
-  batch_size: 256                  # Match pretraining batch size
-  strict_matching: False
+  batch_size: 256
+  strict_matching: false
   min_trees_per_group: 1
   num_workers_train: 0
   num_workers_val: 0
   prefetch_factor: 0
-  max_batches_per_epoch: 1000
-  contrastive_mode: False          # Aggregative mode
-  allow_negatives: True            # Include contradiction samples
-  allow_neutrals: True             # Include neutral samples
-  allow_positives: True            # Include entailment samples
+  max_batches_per_epoch: 250
+  contrastive_mode: false
+  allow_negatives: true
+  allow_neutrals: true
+  allow_positives: true
   num_workers: 0
-
-embedding_cache_dir: '/home/jlunder/research/TMN_DataGen/embedding_cache5/'
+embedding_cache_dir: /home/jlunder/research/TMN_DataGen/embedding_cache5/
 use_gpu: false
-
 train:
-  learning_rate: 0.000001          # Start with same as pretraining
-  weight_decay: 0.00001
-  n_epochs: 200                    # Fewer epochs for fine-tuning
-  patience: 15                     # Higher patience for primary training
+  learning_rate: 1.0e-06
+  weight_decay: 1.0e-05
+  n_epochs: 100
+  patience: 999
   gradient_accumulation_steps: 1
   clip_value: 1.0
   cleanup_interval: 5
-
+  base_seed: 42
+  reset_epoch_enabled: true
+  checkpoint_save_frequency: 4
 wandb:
   project: tree-embedding
-  tags: [aggregative, embedding, snli, primary]
+  tags:
+  - aggregative
+  - embedding
+  - snli
+  - primary
   log_interval: 10
   memory_logging: true

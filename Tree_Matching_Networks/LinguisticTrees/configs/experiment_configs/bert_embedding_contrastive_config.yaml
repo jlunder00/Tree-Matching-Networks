@@ -1,10 +1,10 @@
-text_mode: false
-allow_text_files: false
+text_mode: true
+allow_text_files: true
 model:
   task_type: infonce
   task_loader_type: contrastive
   model_type: embedding
-  name: tree_embedding
+  name: bert_embedding
   bert:
     hidden_size: 1024
     num_hidden_layers: 4
@@ -131,7 +131,7 @@ train:
   learning_rate: 1.0e-06
   weight_decay: 1.0e-05
   n_epochs: 100
-  patience: 10
+  patience: 40
   gradient_accumulation_steps: 1
   clip_value: 1.0
   cleanup_interval: 5
@@ -143,6 +143,8 @@ wandb:
   tags:
   - contrastive
   - embedding
+  - bert
   - wikiqs_amazonqa
+  - seed_reset
   log_interval: 10
   memory_logging: true

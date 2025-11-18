@@ -3,6 +3,7 @@ import torch.multiprocessing as mp
 import random
 import wandb
 import torch
+import numpy as np
 from pathlib import Path
 import logging
 import argparse
@@ -11,8 +12,8 @@ import sys
 import yaml
 import os
 from typing import Optional, Dict, Any
-random.seed(42)
-torch.manual_seed(42)
+
+# Note: Initial seed setting moved to train function for configurability
 
 # Import necessary modules based on your project structure
 try:
@@ -44,6 +45,23 @@ except ImportError:
     from Tree_Matching_Networks.LinguisticTrees.utils.memory_utils import MemoryMonitor
 
 logger = logging.getLogger(__name__)
+
+def set_seed(seed: int):
+    """
+    Set random seeds for reproducibility across all libraries.
+
+    Args:
+        seed: Random seed value
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+    # Additional determinism for CUDA
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 def train_unified(args):
     """
@@ -102,19 +120,76 @@ def train_unified(args):
         base_config=base_config,
         override_config=override_config
     )
-    
+
+    # Override n_epochs if specified on command line
+    if args.n_epochs is not None:
+        logger.info(f"Overriding n_epochs from config ({config['train']['n_epochs']}) to command-line value ({args.n_epochs})")
+        config['train']['n_epochs'] = args.n_epochs
+
+    # Override max_batches_per_epoch if specified on command line
+    if args.max_batches_per_epoch is not None:
+        logger.info(f"Overriding max_batches_per_epoch from config ({config['data']['max_batches_per_epoch']}) to command-line value ({args.max_batches_per_epoch})")
+        config['data']['max_batches_per_epoch'] = args.max_batches_per_epoch
+
+    # Override batch_size if specified on command line
+    if args.batch_size is not None:
+        logger.info(f"Overriding batch_size from config ({config['data']['batch_size']}) to command-line value ({args.batch_size})")
+        config['data']['batch_size'] = args.batch_size
+
+    # Override temperature if specified on command line
+    if args.temperature is not None:
+        old_temp = config['model'].get('temperature', 'not set')
+        logger.info(f"Overriding temperature from config ({old_temp}) to command-line value ({args.temperature})")
+        config['model']['temperature'] = args.temperature
+
+    # Override target_neg_to_pos_ratio if specified on command line
+    if args.target_neg_to_pos_ratio is not None:
+        if 'hard_negative_mining' in config['data']:
+            old_ratio = config['data']['hard_negative_mining'].get('target_neg_to_pos_ratio', 'not set')
+            logger.info(f"Overriding target_neg_to_pos_ratio from config ({old_ratio}) to command-line value ({args.target_neg_to_pos_ratio})")
+            config['data']['hard_negative_mining']['target_neg_to_pos_ratio'] = args.target_neg_to_pos_ratio
+        else:
+            logger.warning("Cannot override target_neg_to_pos_ratio: hard_negative_mining not in config")
+
+    # Override pos_pairs_per_anchor if specified on command line
+    if args.pos_pairs_per_anchor is not None:
+        old_pos = config['data'].get('pos_pairs_per_anchor', 'not set')
+        logger.info(f"Overriding pos_pairs_per_anchor from config ({old_pos}) to command-line value ({args.pos_pairs_per_anchor})")
+        config['data']['pos_pairs_per_anchor'] = args.pos_pairs_per_anchor
+
+    # Override anchors_per_group if specified on command line
+    if args.anchors_per_group is not None:
+        old_anchors = config['data'].get('anchors_per_group', 'not set')
+        logger.info(f"Overriding anchors_per_group from config ({old_anchors}) to command-line value ({args.anchors_per_group})")
+        config['data']['anchors_per_group'] = args.anchors_per_group
+
     is_sweep_run = wandb.run is not None and wandb.run.name is not None
-    
+
+    # Prepare WandB run name
+    if args.wandb_name:
+        run_name = f"{args.wandb_name}_{experiment.timestamp}"
+    else:
+        run_name = f"{args.mode}_{experiment.timestamp}"
+
+    # Prepare WandB tags
+    wandb_tags = [args.mode, *config['wandb'].get('tags', [])]
+    if args.wandb_tags:
+        additional_tags = [tag.strip() for tag in args.wandb_tags.split(',')]
+        wandb_tags.extend(additional_tags)
+
+    # Determine WandB project name (command-line override or config)
+    wandb_project = args.wandb_project if args.wandb_project else config['wandb']['project']
+
     if not is_sweep_run:
         wandb.init(
-            project=config['wandb']['project'],
-            name=f"{args.mode}_{experiment.timestamp}",
+            project=wandb_project,
+            name=run_name,
             config=config,
-            tags=[args.mode, *config['wandb'].get('tags', [])]
+            tags=wandb_tags
         )
     else:
         # Update experiment tags if in a sweep
-        wandb.run.tags = list(set(wandb.run.tags) | set([args.mode, *config['wandb'].get('tags', [])]))
+        wandb.run.tags = list(set(wandb.run.tags) | set(wandb_tags))
     
     logger.info("Setting up data configuration")
     
@@ -292,7 +367,16 @@ def train_unified(args):
     logger.info("Starting training loop")
     best_val_loss = float('inf') if not args.resume else checkpoint.get('best_val_loss', float('inf'))
     patience_counter = 0
-    
+
+    # Seed management configuration
+    base_seed = config['train'].get('base_seed', 42)
+    reset_epoch_enabled = config['train'].get('reset_epoch_enabled', True)
+
+    logger.info(f"Seed configuration: base_seed={base_seed}, reset_epoch_enabled={reset_epoch_enabled}")
+
+    # Set initial seed ONCE - random state will evolve naturally from here
+    set_seed(base_seed)
+
     if args.resume_with_epoch and args.mode == 'contrastive':
         r = random.uniform(0, 1)
         train_dataset.set_pairing_ratio(r)
@@ -300,6 +384,19 @@ def train_unified(args):
         print("using random for first epoch")
     for epoch in range(start_epoch, config['train']['n_epochs']):
         logger.info(f"Starting epoch {epoch}/{config['train']['n_epochs']}")
+
+        # Reset datasets for new epoch to get fresh random data selection
+        # This uses the current random state (which evolves each epoch)
+        if reset_epoch_enabled:
+            if hasattr(train_dataset, 'reset_epoch'):
+                train_dataset.reset_epoch()
+                logger.debug("Train dataset reset for new epoch (new random data selection)")
+            if hasattr(val_dataset, 'reset_epoch'):
+                val_dataset.reset_epoch()
+                logger.debug("Validation dataset reset for new epoch (new random data selection)")
+        else:
+            logger.debug("Dataset reset disabled - using continuous data stream (OLD BEHAVIOR)")
+
         if args.mode == 'contrastive':
             print(f"RATIO IS: {train_dataset.get_pairing_ratio()}")
         
@@ -326,13 +423,19 @@ def train_unified(args):
             'epoch': epoch,
             'train': train_metrics,
             'val': val_metrics,
-            'learning_rate': optimizer.param_groups[0]['lr']
+            'learning_rate': optimizer.param_groups[0]['lr'],
+            'base_seed': base_seed,
+            'reset_epoch_enabled': reset_epoch_enabled
         }
         wandb.log(metrics)
-        
-        experiment.save_checkpoint(
-            model, optimizer, epoch, metrics
-        )
+
+        # Save regular checkpoint only every N epochs to save space
+        checkpoint_save_frequency = config['train'].get('checkpoint_save_frequency', 1)
+        if epoch % checkpoint_save_frequency == 0 or epoch == config['train']['n_epochs'] - 1:
+            experiment.save_checkpoint(
+                model, optimizer, epoch, metrics
+            )
+            logger.info(f"Saved checkpoint for epoch {epoch}")
         
         if val_metrics['loss'] < best_val_loss:
             best_val_loss = val_metrics['loss']
@@ -372,7 +475,29 @@ if __name__ == '__main__':
                       help='Training mode', default='contrastive')
     parser.add_argument('--task_type', type=str, default=None,
                       help='Task type (infonce, similarity, entailment, etc.)')
-    
+    parser.add_argument('--n_epochs', type=int, default=None,
+                      help='Override n_epochs from config (for testing/experimentation)')
+    parser.add_argument('--max_batches_per_epoch', type=int, default=None,
+                      help='Override max_batches_per_epoch from config (for testing/experimentation)')
+    parser.add_argument('--batch_size', type=int, default=None,
+                      help='Override batch_size from config (for consistency across models)')
+    parser.add_argument('--wandb_name', type=str, default=None,
+                      help='Custom WandB run name (timestamp will be appended)')
+    parser.add_argument('--wandb_tags', type=str, default=None,
+                      help='Comma-separated additional tags for WandB')
+    parser.add_argument('--wandb_project', type=str, default=None,
+                      help='Override WandB project name from config')
+
+    # Hyperparameter sweep arguments
+    parser.add_argument('--temperature', type=float, default=None,
+                      help='Override temperature from config (for contrastive learning)')
+    parser.add_argument('--target_neg_to_pos_ratio', type=int, default=None,
+                      help='Override target_neg_to_pos_ratio from config (hard negative mining)')
+    parser.add_argument('--pos_pairs_per_anchor', type=int, default=None,
+                      help='Override pos_pairs_per_anchor from config (contrastive dataset)')
+    parser.add_argument('--anchors_per_group', type=int, default=None,
+                      help='Override anchors_per_group from config (contrastive dataset)')
+
     args = parser.parse_args()
     
     logging.basicConfig(

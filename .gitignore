@@ -188,3 +188,8 @@ sweep_config_*
 wandb/*
 Tree_Matching_Networks/LinguisticTrees/experiments/wandb/*
 Tree_Matching_Networks/LinguisticTrees/wandb/*
+
+SWEEP_READY_CHECKLIST.md
+evaluation_results/
+launch_contrastive_sweep.sh
+scripts/count_transformer_parameters.py

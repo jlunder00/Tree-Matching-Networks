@@ -3,8 +3,8 @@ allow_text_files: false
 model:
   task_type: infonce
   task_loader_type: contrastive
-  model_type: embedding
-  name: tree_embedding
+  model_type: matching
+  name: tree_matching
   bert:
     hidden_size: 1024
     num_hidden_layers: 4
@@ -34,6 +34,7 @@ model:
     share_prop_params: true
     n_prop_layers: 5
   temperature: 0.05
+  aggregation: attention
 data:
   dataset_type: wikiqs
   dataset_specs:
@@ -91,7 +92,7 @@ data:
   positive_pairing_ratio: 1.0
   ensure_positives_in_batch: true
   prefetch_factor: 2
-  max_batches_per_epoch: 250
+  max_batches_per_epoch: 600
   max_text_chars: 500
 
   # Hard negative mining configuration
@@ -130,19 +131,20 @@ use_gpu: false
 train:
   learning_rate: 1.0e-06
   weight_decay: 1.0e-05
-  n_epochs: 100
-  patience: 10
+  n_epochs: 50
+  patience: 999
   gradient_accumulation_steps: 1
   clip_value: 1.0
   cleanup_interval: 5
   base_seed: 42
   reset_epoch_enabled: true
-  checkpoint_save_frequency: 4
+  checkpoint_save_frequency: 5
 wandb:
   project: tree-embedding
   tags:
   - contrastive
-  - embedding
+  - matching
   - wikiqs_amazonqa
+  - edge_fix
   log_interval: 10
   memory_logging: true
