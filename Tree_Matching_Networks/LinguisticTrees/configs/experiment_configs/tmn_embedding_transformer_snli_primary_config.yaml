@@ -72,7 +72,7 @@ data:
   num_workers_train: 0
   num_workers_val: 0
   prefetch_factor: 0
-  max_batches_per_epoch: 250
+  max_batches_per_epoch: 600
   contrastive_mode: false
   allow_negatives: true
   allow_neutrals: true

@@ -109,7 +109,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
          in a BatchInfo object.
       6. Leftover trees in any group remain in the buffer to be used in later batches.
     """
-    def __init__(self, 
+    def __init__(self,
                  data_dir: str,
                  config: Dict,
                  batch_size: int = 512, #either maximum or minimum batch size based on if get min groups is passed ceil = True or not. Max if false, min if true.
@@ -128,7 +128,9 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
                  allow_text_files = False,
                  text_mode: bool = False,
                  tokenizer = None,
-                 max_length: int = 512):
+                 max_length: int = 512,
+                 bidirectional_anchor_pairs: bool = True,
+                 allow_anchor_anchor_pairing: bool = True):
         """
         Args:
           data_dir: Directory containing the shard JSON files.
@@ -160,6 +162,8 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         self.batch_size = batch_size
         self.A = anchors_per_group
         self.P = pos_pairs_per_anchor
+        self.bidirectional_anchor_pairs = bidirectional_anchor_pairs
+        self.allow_anchor_anchor_pairing = allow_anchor_anchor_pairing
         # self.N = neg_pairs_per_anchor
         # self.min_groups = min_groups_per_batch
         self.shuffle_files = shuffle_files
@@ -192,7 +196,16 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
 
             # For positive pairing within a group, each group must supply:
             # Anchors can pair with each other, so we only need additional positives beyond what anchors provide
-            self.additional_trees_needed = self.P - (self.A - 1) if self.P > (self.A - 1) else 0
+            if self.allow_anchor_anchor_pairing:
+                if self.bidirectional_anchor_pairs:
+                    # Bidirectional: each anchor can pair with (A-1) others
+                    self.additional_trees_needed = max(0, self.P - (self.A - 1))
+                else:
+                    # Unidirectional: worst-case anchor (highest index) gets 0 pairs from other anchors
+                    self.additional_trees_needed = self.P
+            else:
+                # No anchor-anchor pairing: each anchor needs P non-anchor positives
+                self.additional_trees_needed = self.P
             self.R = self.A + self.additional_trees_needed  # trees per group = anchors + additional positives
             # Each anchor gets P pairs: min(P, A-1) from other anchors + additional_trees_needed from positives
             self.positive_pairs_per_group = self.P * self.A  # Each of A anchors gets P pairs
@@ -203,7 +216,17 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
             # Calculate the number of anchors required
             self.total_anchors_needed = self.A * self.groups_needed
         else:
-            self.additional_trees_needed = self.P-(self.A-1) if self.P > (self.A-1) else 0
+            # Embedding models
+            if self.allow_anchor_anchor_pairing:
+                if self.bidirectional_anchor_pairs:
+                    # Bidirectional: each anchor can pair with (A-1) others
+                    self.additional_trees_needed = max(0, self.P - (self.A - 1))
+                else:
+                    # Unidirectional: worst-case anchor needs all P pairs from non-anchors
+                    self.additional_trees_needed = self.P
+            else:
+                # No anchor-anchor pairing: each anchor needs P non-anchor positives
+                self.additional_trees_needed = self.P
             self.R = self.A + self.additional_trees_needed
             self.groups_needed = int(self.batch_size/self.R) #number of groups needed to fulfil batch size embeddings
             self.batch_pair_size = int(self.A*(self.A+self.additional_trees_needed)*(self.groups_needed**2) - (self.A**2)*self.groups_needed)
@@ -627,12 +650,15 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
 
                     pairs_created = 0
 
-                    # Pair with other anchors (bidirectional for embedding models)
-                    for j in range(self.A):
-                        if i != j and pairs_created < self.P:
-                            other_anchor_idx = start + j
-                            positive_pairs.append((global_anchor_idx, other_anchor_idx))
-                            pairs_created += 1
+                    # Pair with other anchors (only if allowed)
+                    if self.allow_anchor_anchor_pairing:
+                        for j in range(self.A):
+                            # Apply bidirectional or unidirectional pairing
+                            pairing_condition = (i < j) if not self.bidirectional_anchor_pairs else (i != j)
+                            if pairing_condition and pairs_created < self.P:
+                                other_anchor_idx = start + j
+                                positive_pairs.append((global_anchor_idx, other_anchor_idx))
+                                pairs_created += 1
 
                     # Pair with additional positives
                     for k in range(self.additional_trees_needed):
@@ -694,10 +720,12 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         # Apply pairing strategy based on model type
         if self.model_type == 'matching' and self.P > 1:
             # For matching models with minimal covering: use priority-based negative pairing
-            positive_pairs = self._apply_priority_based_negative_pairing(
+            positive_pairs, converted_negatives = self._apply_priority_based_negative_pairing(
                 positive_pairs, negative_pairs, anchor_indices,
                 global_group_assignment, self.positive_pairing_ratio
             )
+            # Merge converted pairs into negative_pairs so they're labeled correctly
+            negative_pairs.extend(converted_negatives)
         else:
             # For embedding models: use original mixed pairing strategy
             batch_trees, positive_pairs = self._apply_mixed_pairing_strategy(batch_trees, positive_pairs, anchor_indices)
@@ -832,8 +860,7 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
                     # We need a deep copy if the same tree appears multiple times
                     all_batch_graphs.append(convert_tree_to_graph_data([tree1, tree2]))
                     # Record these will be paired with graph_idx [2i, 2i+1]
-                    # all_pair_info.append((pair_idx * 2, pair_idx * 2 + 1, True))  # True = positive pair
-                    all_pair_info.append((tree_idx1, tree_idx2, True))  # True = positive pair
+                    all_pair_info.append((pair_idx * 2, pair_idx * 2 + 1, True))  # FIXED: Use paired graph indices, not tree indices
                     if tree_idx1 in anchor_positive_indexes.keys():
                         anchor_positive_indexes[tree_idx1].append(pair_idx)
                     else:
@@ -949,11 +976,11 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         anchor_indices: List[int],
         global_group_assignment: Dict[int, str],
         ratio: float
-    ) -> List[Tuple[int, int]]:
+    ) -> Tuple[List[Tuple[int, int]], List[Tuple[int, int]]]:
         """
         Apply priority-based negative pairing for matching models with minimal covering.
 
-        When ratio < 1.0, converts positive pairs to include negatives with priority:
+        When ratio < 1.0, converts positive pairs to negative pairs with priority:
         1. Unpaired positives (duplicate anchors) → pair with negatives (saves computation)
         2. Anchor-Positive pairs → swap to Anchor-Negative (hardest training)
         3. Positive-Positive pairs → swap to Positive-Negative (medium difficulty)
@@ -966,18 +993,20 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
             ratio: Proportion of pairs to keep positive (0.0 to 1.0)
 
         Returns:
-            Updated pairs with some positives swapped for negatives
+            Tuple of (still_positive_pairs, converted_to_negative_pairs)
+            - still_positive_pairs: Pairs that remain positive
+            - converted_to_negative_pairs: Pairs converted to negative (for merging into negative_pairs)
         """
         if ratio >= 1.0:
-            # Keep all pairs as positive
-            return positive_pairs
+            # Keep all pairs as positive, none converted
+            return positive_pairs, []
 
         total_pairs = len(positive_pairs)
         num_positive_keep = int(total_pairs * ratio)
         num_convert_to_negative = total_pairs - num_positive_keep
 
         if num_convert_to_negative <= 0:
-            return positive_pairs
+            return positive_pairs, []
 
         # Categorize positive pairs by type
         anchor_set = set(anchor_indices)
@@ -1034,32 +1063,47 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
                 break
             convert_list.append(pair_info)
 
-        # Apply conversions
-        updated_pairs = list(positive_pairs)
+        # Build set of indices to convert for fast lookup
+        convert_set = set(pair_idx for pair_idx, _, _, _ in convert_list)
 
-        for pair_idx, idx1, idx2, group1 in convert_list:
-            # Get a negative to replace idx2
-            neg_idx = None
+        # Separate pairs into still-positive and converted-to-negative
+        still_positive_pairs = []
+        converted_to_negative_pairs = []
 
-            if idx1 in anchor_set:
-                # idx1 is an anchor - use its negatives
-                if idx1 in negatives_by_anchor and negatives_by_anchor[idx1]:
-                    neg_idx = negatives_by_anchor[idx1].pop(0)
+        for pair_idx, (idx1, idx2) in enumerate(positive_pairs):
+            if pair_idx not in convert_set:
+                # This pair remains positive
+                still_positive_pairs.append((idx1, idx2))
+            else:
+                # This pair should be converted to negative
+                # Find the negative index for this pair
+                neg_idx = None
 
-            # Fallback: use negatives from any anchor or the flat pool
-            if neg_idx is None and neg_pool_idx < len(all_negatives):
-                neg_idx = all_negatives[neg_pool_idx]
-                neg_pool_idx += 1
+                if idx1 in anchor_set:
+                    # idx1 is an anchor - use its negatives
+                    if idx1 in negatives_by_anchor and negatives_by_anchor[idx1]:
+                        neg_idx = negatives_by_anchor[idx1].pop(0)
 
-            if neg_idx is not None:
-                updated_pairs[pair_idx] = (idx1, neg_idx)
+                # Fallback: use negatives from any anchor or the flat pool
+                if neg_idx is None and neg_pool_idx < len(all_negatives):
+                    neg_idx = all_negatives[neg_pool_idx]
+                    neg_pool_idx += 1
 
-        logger.debug(f"Priority-based pairing: converted {len(convert_list)} pairs to include negatives "
-                    f"(ratio={ratio:.2f}, duplicates={len(duplicate_pairs)}, "
+                if neg_idx is not None:
+                    # Add to converted negatives list
+                    converted_to_negative_pairs.append((idx1, neg_idx))
+                else:
+                    # No negative available - keep as positive (fallback)
+                    still_positive_pairs.append((idx1, idx2))
+                    logger.warning(f"No negative available for pair {pair_idx}, keeping as positive")
+
+        logger.debug(f"Priority-based pairing: converted {len(converted_to_negative_pairs)} pairs to negatives "
+                    f"(ratio={ratio:.2f}, kept {len(still_positive_pairs)} positive, "
+                    f"duplicates={len(duplicate_pairs)}, "
                     f"anchor-pos={len([p for p in convert_list if p in anchor_pos_pairs])}, "
                     f"pos-pos={len([p for p in convert_list if p in pos_pos_pairs])})")
 
-        return updated_pairs
+        return still_positive_pairs, converted_to_negative_pairs
 
     def collate_graphs(self, graphs):
         from_idx = []

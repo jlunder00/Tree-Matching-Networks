@@ -75,10 +75,10 @@ data:
   allow_cross_dataset_negatives: false  # Changed: Force single-dataset batches for better negatives
   batch_size: 256
   strict_matching: false
-  pos_pairs_per_anchor: 3  # Scientific consistency: 3 positives per anchor (groups need ≥4 trees)
+  pos_pairs_per_anchor: 4  # OPTIMAL from sweep: most consistent performance
   neg_pairs_per_anchor: 10  # Ignored when hard negative mining enabled (use max_negatives_per_anchor instead)
   min_groups_per_batch: 8
-  anchors_per_group: 1  # Number of anchors per group
+  anchors_per_group: 1  # ONLY STABLE CONFIGURATION (A>1 causes instability)
   num_workers: 2
   positive_pairing_ratio: 1.0
   ensure_positives_in_batch: true
@@ -103,7 +103,7 @@ data:
     #   pos=1, ratio=10 → 10 negatives (1:10)
     #   pos=3, ratio=10 → 30 negatives (1:10)
     #   pos=4, ratio=8  → 32 negatives (1:8)
-    target_neg_to_pos_ratio: 20  # Scientific consistency: 1:20 ratio (aggressive negative bias)
+    target_neg_to_pos_ratio: 25  # OPTIMAL from sweep: most consistent performance
 
     # Sampling strategy: how to select from ranked candidates
     # - 'top_k': Select top K most similar (deterministic, hardest)

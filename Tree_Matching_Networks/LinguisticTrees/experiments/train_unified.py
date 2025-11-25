@@ -163,6 +163,16 @@ def train_unified(args):
         logger.info(f"Overriding anchors_per_group from config ({old_anchors}) to command-line value ({args.anchors_per_group})")
         config['data']['anchors_per_group'] = args.anchors_per_group
 
+    if args.bidirectional_anchor_pairs is not None:
+        old_bidirectional = config['data'].get('bidirectional_anchor_pairs', 'not set')
+        logger.info(f"Overriding bidirectional_anchor_pairs from config ({old_bidirectional}) to command-line value ({args.bidirectional_anchor_pairs})")
+        config['data']['bidirectional_anchor_pairs'] = args.bidirectional_anchor_pairs
+
+    if args.allow_anchor_anchor_pairing is not None:
+        old_allow = config['data'].get('allow_anchor_anchor_pairing', 'not set')
+        logger.info(f"Overriding allow_anchor_anchor_pairing from config ({old_allow}) to command-line value ({args.allow_anchor_anchor_pairing})")
+        config['data']['allow_anchor_anchor_pairing'] = args.allow_anchor_anchor_pairing
+
     is_sweep_run = wandb.run is not None and wandb.run.name is not None
 
     # Prepare WandB run name
@@ -289,9 +299,11 @@ def train_unified(args):
         train_dataset = DynamicCalculatedContrastiveDataset(
             data_dir=[str(path) for path in data_config.train_paths],
             config=config,
-            batch_size=config['data']['batch_size'],  
+            batch_size=config['data']['batch_size'],
             anchors_per_group=config['data'].get('anchors_per_group', 1),
             pos_pairs_per_anchor=config['data'].get('pos_pairs_per_anchor', 1),
+            bidirectional_anchor_pairs=config['data'].get('bidirectional_anchor_pairs', True),
+            allow_anchor_anchor_pairing=config['data'].get('allow_anchor_anchor_pairing', True),
             shuffle_files=True,
             prefetch_factor=prefetch if prefetch > 0 else None,
             max_active_files=4,
@@ -311,6 +323,8 @@ def train_unified(args):
             batch_size=config['data']['batch_size'],
             anchors_per_group=config['data'].get('anchors_per_group', 1),
             pos_pairs_per_anchor=config['data'].get('pos_pairs_per_anchor', 1),
+            bidirectional_anchor_pairs=config['data'].get('bidirectional_anchor_pairs', True),
+            allow_anchor_anchor_pairing=config['data'].get('allow_anchor_anchor_pairing', True),
             shuffle_files=True,
             prefetch_factor=prefetch if prefetch > 0 else None,
             max_active_files=4,
@@ -497,6 +511,10 @@ if __name__ == '__main__':
                       help='Override pos_pairs_per_anchor from config (contrastive dataset)')
     parser.add_argument('--anchors_per_group', type=int, default=None,
                       help='Override anchors_per_group from config (contrastive dataset)')
+    parser.add_argument('--bidirectional_anchor_pairs', type=lambda x: x.lower() == 'true', default=None,
+                      help='Override bidirectional_anchor_pairs from config (true/false)')
+    parser.add_argument('--allow_anchor_anchor_pairing', type=lambda x: x.lower() == 'true', default=None,
+                      help='Override allow_anchor_anchor_pairing from config (true/false)')
 
     args = parser.parse_args()
     
