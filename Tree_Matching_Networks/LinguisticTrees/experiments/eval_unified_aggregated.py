@@ -283,7 +283,9 @@ def main():
     parser.add_argument("--override", type=str, default=None)
     parser.add_argument('--data_root', type=str, default=None,
                         help='The root data directory, containing dev, test, and train folders with dataset folders inside')
-    
+    parser.add_argument('--use_full_suffix', action='store_true',
+                      help='Use full SNLI training dataset (applies _full suffix to train split only, not dev/test)')
+
     args = parser.parse_args()
     
     # Setup logging
@@ -333,7 +335,8 @@ def main():
             task_type=task_type,
             use_sharded_train=True,
             use_sharded_validate=False,
-            use_sharded_test=True
+            use_sharded_test=True,
+            use_full_suffix=args.use_full_suffix
         )
     else:
         data_config = TreeDataConfig(
@@ -341,7 +344,8 @@ def main():
             task_type=task_type,
             use_sharded_train=True,
             use_sharded_validate=False,
-            use_sharded_test=True
+            use_sharded_test=True,
+            use_full_suffix=args.use_full_suffix
         )
     
     label_map = {'-': 1.0, 'entailment': 1.0, 'neutral': 0.0, 'contradiction': -1.0, 

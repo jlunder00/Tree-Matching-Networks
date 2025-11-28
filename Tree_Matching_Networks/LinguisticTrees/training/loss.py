@@ -216,40 +216,70 @@ class InfoNCELoss(BaseLoss):
         return loss, None, metrics
 
     def _get_metrics(self, batch_info, sim_matrix, diagonal=False):
-        # Compute metrics
+        # Compute metrics (does not affect loss, only for logging)
         with torch.no_grad():
-            # Calculate average similarity for positives
             pos_sim = 0
             neg_sim = 0
             n_pos = 0
             n_neg = 0
-            
-            for anchor_idx in batch_info.anchor_indices:
-                if not diagonal:
-                    # Get all positive and negative indices for this anchor
-                    pos_indices = [pos_idx for a_idx, pos_idx in batch_info.positive_pairs 
-                                  if a_idx == anchor_idx]
-                    neg_indices = [neg_idx for a_idx, neg_idx in batch_info.negative_pairs 
-                                  if a_idx == anchor_idx]
+
+            if not diagonal:
+                # Detect model type: embedding models have empty pair_indices
+                is_embedding_model = len(batch_info.pair_indices) == 0
+
+                if is_embedding_model:
+                    # EMBEDDING MODEL: Tree indices directly correspond to embedding indices
+                    for anchor_idx in batch_info.anchor_indices:
+                        pos_indices = [pos_idx for a_idx, pos_idx in batch_info.positive_pairs
+                                      if a_idx == anchor_idx]
+                        neg_indices = [neg_idx for a_idx, neg_idx in batch_info.negative_pairs
+                                      if a_idx == anchor_idx]
+
+                        for pos_idx in pos_indices:
+                            pos_sim += sim_matrix[anchor_idx, pos_idx].item()
+                            n_pos += 1
+
+                        for neg_idx in neg_indices:
+                            neg_sim += sim_matrix[anchor_idx, neg_idx].item()
+                            n_neg += 1
                 else:
-                    pos_indices = batch_info.anchor_positive_indexes[anchor_idx] 
-                    neg_indices = batch_info.anchor_negative_indexes[anchor_idx]
-                    
-                
-                # Add positive similarities
-                for pos_idx in pos_indices:
-                    pos_sim += sim_matrix[anchor_idx, pos_idx].item() if not diagonal else sim_matrix[pos_idx]
-                    n_pos += 1
-                    
-                # Add negative similarities
-                for neg_idx in neg_indices:
-                    neg_sim += sim_matrix[anchor_idx, neg_idx].item() if not diagonal else sim_matrix[neg_idx]
-                    n_neg += 1
-            
+                    # MATCHING MODEL (non-strict): Use graph indices from pair_indices
+                    # Format: (anchor_graph_idx, other_graph_idx, is_positive)
+                    positive_pair_set = set()
+                    for anchor_idx, other_idx, is_positive in batch_info.pair_indices:
+                        if is_positive:
+                            positive_pair_set.add((anchor_idx, other_idx))
+                            pos_sim += sim_matrix[anchor_idx, other_idx].item()
+                            n_pos += 1
+
+                    # Compute negative similarity (average of all non-positive pairs)
+                    n_embeddings = sim_matrix.shape[0]
+                    unique_anchors = set(anchor_idx for anchor_idx, _, _ in batch_info.pair_indices)
+
+                    for anchor_idx in unique_anchors:
+                        for i in range(n_embeddings):
+                            if i != anchor_idx and (anchor_idx, i) not in positive_pair_set:
+                                neg_sim += sim_matrix[anchor_idx, i].item()
+                                n_neg += 1
+
+            else:
+                # MATCHING MODEL (strict): Use anchor_positive_indexes and anchor_negative_indexes
+                for anchor_idx in batch_info.anchor_indices:
+                    pos_indices = batch_info.anchor_positive_indexes.get(anchor_idx, [])
+                    neg_indices = batch_info.anchor_negative_indexes.get(anchor_idx, [])
+
+                    for pos_idx in pos_indices:
+                        pos_sim += sim_matrix[pos_idx]
+                        n_pos += 1
+
+                    for neg_idx in neg_indices:
+                        neg_sim += sim_matrix[neg_idx]
+                        n_neg += 1
+
             # Compute averages
             pos_sim = pos_sim / max(1, n_pos)
             neg_sim = neg_sim / max(1, n_neg)
-            
+
             metrics = {
                 'pos_similarity': pos_sim,
                 'neg_similarity': neg_sim,

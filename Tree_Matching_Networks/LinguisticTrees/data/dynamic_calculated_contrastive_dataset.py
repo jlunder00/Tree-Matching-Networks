@@ -990,13 +990,19 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
             negative_pairs: Hard negative pairs from mining [(anchor_idx, neg_idx), ...]
             anchor_indices: List of anchor tree indices
             global_group_assignment: Mapping of tree idx -> group ID
-            ratio: Proportion of pairs to keep positive (0.0 to 1.0)
+            ratio: Proportion of pairs to keep positive (0.0 to 1.0, or -1 for random per batch)
 
         Returns:
             Tuple of (still_positive_pairs, converted_to_negative_pairs)
             - still_positive_pairs: Pairs that remain positive
             - converted_to_negative_pairs: Pairs converted to negative (for merging into negative_pairs)
         """
+        # Handle special case: ratio = -1 means "random per batch"
+        if ratio < 0:
+            import random
+            ratio = random.uniform(0.0, 1.0)
+            logger.debug(f"Random per-batch pairing ratio: {ratio:.3f}")
+
         if ratio >= 1.0:
             # Keep all pairs as positive, none converted
             return positive_pairs, []
@@ -1004,6 +1010,15 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
         total_pairs = len(positive_pairs)
         num_positive_keep = int(total_pairs * ratio)
         num_convert_to_negative = total_pairs - num_positive_keep
+
+        # SAFEGUARD: For matching models, ensure at least 1 positive pair remains
+        # This prevents empty batch_graphs which causes collate_graphs to crash
+        # (Matching models create graphs by iterating over positive_pairs, so empty list = crash)
+        if num_positive_keep == 0 and total_pairs > 0:
+            num_positive_keep = 1
+            num_convert_to_negative = total_pairs - 1
+            logger.warning(f"Pairing ratio {ratio:.2f} would leave 0 positive pairs for matching model. "
+                          f"Keeping 1 positive pair (out of {total_pairs}) to prevent empty batch crash.")
 
         if num_convert_to_negative <= 0:
             return positive_pairs, []

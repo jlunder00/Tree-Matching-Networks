@@ -25,6 +25,7 @@ class TreeDataConfig:
     use_sharded_train: bool = True
     use_sharded_validate: bool = True
     use_sharded_test: bool = True
+    use_full_suffix: bool = False
     
     # New option to allow cross-dataset negatives
     allow_cross_dataset_negatives: bool = True
@@ -75,9 +76,15 @@ class TreeDataConfig:
             # Generic fallback
             base_dir = f'{base_dataset}_{split}_converted_{self.spacy_variant}'
             
-        # Add sharded suffix if appropriate
-        if split == 'train' and self.use_sharded_train:
+        # Add suffixes if appropriate
+        # For train split: _full and _sharded are mutually exclusive
+        # (_full datasets are already in non-sharded format)
+        if split == 'train' and self.use_full_suffix:
+            base_dir += '_full'
+        elif split == 'train' and self.use_sharded_train:
             base_dir += '_sharded'
+
+        # For dev/test: only apply sharded suffix
         if split == 'dev' and self.use_sharded_validate:
             base_dir += '_sharded'
         if split == 'test' and self.use_sharded_test:

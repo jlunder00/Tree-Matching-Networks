@@ -206,20 +206,22 @@ def train_unified(args):
     if args.data_root:
         data_config = TreeDataConfig(
             data_root=args.data_root,
-            dataset_specs=config.get('data', {}).get('dataset_specs', 
+            dataset_specs=config.get('data', {}).get('dataset_specs',
                                                    [config.get('data', {}).get('dataset_type', 'wikiqs')]),
             task_type=config.get('model', {}).get('task_type', 'infonce'),  # Empty for flexibility
             use_sharded_train=True,
             use_sharded_validate=True,
+            use_full_suffix=args.use_full_suffix,
             allow_cross_dataset_negatives=config.get('data', {}).get('allow_cross_dataset_negatives', True)
         )
     else:
         data_config = TreeDataConfig(
-            dataset_specs=config.get('data', {}).get('dataset_specs', 
+            dataset_specs=config.get('data', {}).get('dataset_specs',
                                                    [config.get('data', {}).get('dataset_type', 'wikiqs')]),
             task_type=config.get('model', {}).get('task_type', 'infonce'),  # Empty for flexibility
             use_sharded_train=True,
             use_sharded_validate=True,
+            use_full_suffix=args.use_full_suffix,
             allow_cross_dataset_negatives=config.get('data', {}).get('allow_cross_dataset_negatives', True)
         )
     
@@ -515,6 +517,8 @@ if __name__ == '__main__':
                       help='Override bidirectional_anchor_pairs from config (true/false)')
     parser.add_argument('--allow_anchor_anchor_pairing', type=lambda x: x.lower() == 'true', default=None,
                       help='Override allow_anchor_anchor_pairing from config (true/false)')
+    parser.add_argument('--use_full_suffix', action='store_true',
+                      help='Use full SNLI training dataset (applies _full suffix to train split only, not dev/test)')
 
     args = parser.parse_args()
     
