@@ -233,88 +233,159 @@ def validate_step_contrastive(model, X, batch_info, loss_fn, device, config):
                 embeddings.unsqueeze(0),  # [1, n_embeddings, hidden_dim]
                 dim=2
             )
-            
+
+            # Detect model type: embedding models have empty pair_indices
+            is_embedding_model = len(batch_info.pair_indices) == 0
+
             # Compute accuracy metrics for contrastive learning
             accuracy_metrics = {}
-            
-            # Accuracy@1: Whether the most similar item is the correct positive
-            top1_accuracy = 0
-            total_anchors = 0
-            
-            for anchor_idx in batch_info.anchor_indices:
-                # Get positive indices for this anchor
-                positive_indices = [pos_idx for a_idx, pos_idx in batch_info.positive_pairs 
-                                 if a_idx == anchor_idx]
-                
-                if not positive_indices:
-                    continue
-                    
-                # Get similarities for this anchor with all other samples
-                anchor_similarities = similarity_matrix[anchor_idx]
-                
-                # Exclude self-similarity
-                anchor_similarities[anchor_idx] = -float('inf')
-                
-                # Get the index of the highest similarity
-                top_idx = torch.argmax(anchor_similarities).item()
-                
-                # Check if the top similarity is with a positive example
-                is_correct = top_idx in positive_indices
-                top1_accuracy += int(is_correct)
-                total_anchors += 1
-                
-            if total_anchors > 0:
-                accuracy_metrics['top1_accuracy'] = top1_accuracy / total_anchors
-            
-            # Recall@k (k=5): Percentage of positives in top k most similar items
-            k = min(5, similarity_matrix.size(0) - 1)  # Ensure k is valid
-            recall_at_k = 0
-            
-            for anchor_idx in batch_info.anchor_indices:
-                positives = [pos_idx for a_idx, pos_idx in batch_info.positive_pairs 
-                           if a_idx == anchor_idx]
-                
-                if not positives:
-                    continue
-                    
-                # Get similarities excluding self
-                sims = similarity_matrix[anchor_idx].clone()
-                sims[anchor_idx] = -float('inf')
-                
-                # Get top k indices
-                _, top_k_indices = torch.topk(sims, k)
-                
-                # Count positives in top k
-                correct = sum(1 for idx in top_k_indices if idx.item() in positives)
-                recall_at_k += correct / len(positives)
-                
-            if total_anchors > 0:
-                accuracy_metrics[f'recall@{k}'] = recall_at_k / total_anchors
-            
-            # Mean Reciprocal Rank (MRR)
-            mrr = 0
-            for anchor_idx in batch_info.anchor_indices:
-                positives = [pos_idx for a_idx, pos_idx in batch_info.positive_pairs 
-                           if a_idx == anchor_idx]
-                
-                if not positives:
-                    continue
-                    
-                # Get similarities excluding self
-                sims = similarity_matrix[anchor_idx].clone()
-                sims[anchor_idx] = -float('inf')
-                
-                # Get ranks of all items
-                _, indices = torch.sort(sims, descending=True)
-                
-                # Find rank of first positive
-                for rank, idx in enumerate(indices):
-                    if idx.item() in positives:
-                        mrr += 1.0 / (rank + 1)  # +1 because ranks are 0-indexed
-                        break
-            
-            if total_anchors > 0:
-                accuracy_metrics['mrr'] = mrr / total_anchors
+
+            if is_embedding_model:
+                # EMBEDDING MODEL: Tree indices = graph indices, use directly
+                # Accuracy@1: Whether the most similar item is the correct positive
+                top1_accuracy = 0
+                total_anchors = 0
+
+                for anchor_idx in batch_info.anchor_indices:
+                    # Get positive indices for this anchor
+                    positive_indices = [pos_idx for a_idx, pos_idx in batch_info.positive_pairs
+                                     if a_idx == anchor_idx]
+
+                    if not positive_indices:
+                        continue
+
+                    # Get similarities for this anchor with all other samples
+                    anchor_similarities = similarity_matrix[anchor_idx]
+
+                    # Exclude self-similarity
+                    anchor_similarities[anchor_idx] = -float('inf')
+
+                    # Get the index of the highest similarity
+                    top_idx = torch.argmax(anchor_similarities).item()
+
+                    # Check if the top similarity is with a positive example
+                    is_correct = top_idx in positive_indices
+                    top1_accuracy += int(is_correct)
+                    total_anchors += 1
+
+                if total_anchors > 0:
+                    accuracy_metrics['top1_accuracy'] = top1_accuracy / total_anchors
+
+                # Recall@k (k=5): Percentage of positives in top k most similar items
+                k = min(5, similarity_matrix.size(0) - 1)  # Ensure k is valid
+                recall_at_k = 0
+
+                for anchor_idx in batch_info.anchor_indices:
+                    positives = [pos_idx for a_idx, pos_idx in batch_info.positive_pairs
+                               if a_idx == anchor_idx]
+
+                    if not positives:
+                        continue
+
+                    # Get similarities excluding self
+                    sims = similarity_matrix[anchor_idx].clone()
+                    sims[anchor_idx] = -float('inf')
+
+                    # Get top k indices
+                    _, top_k_indices = torch.topk(sims, k)
+
+                    # Count positives in top k
+                    correct = sum(1 for idx in top_k_indices if idx.item() in positives)
+                    recall_at_k += correct / len(positives)
+
+                if total_anchors > 0:
+                    accuracy_metrics[f'recall@{k}'] = recall_at_k / total_anchors
+
+                # Mean Reciprocal Rank (MRR)
+                mrr = 0
+                for anchor_idx in batch_info.anchor_indices:
+                    positives = [pos_idx for a_idx, pos_idx in batch_info.positive_pairs
+                               if a_idx == anchor_idx]
+
+                    if not positives:
+                        continue
+
+                    # Get similarities excluding self
+                    sims = similarity_matrix[anchor_idx].clone()
+                    sims[anchor_idx] = -float('inf')
+
+                    # Get ranks of all items
+                    _, indices = torch.sort(sims, descending=True)
+
+                    # Find rank of first positive
+                    for rank, idx in enumerate(indices):
+                        if idx.item() in positives:
+                            mrr += 1.0 / (rank + 1)  # +1 because ranks are 0-indexed
+                            break
+
+                if total_anchors > 0:
+                    accuracy_metrics['mrr'] = mrr / total_anchors
+
+            else:
+                # MATCHING MODEL: Use graph indices from pair_indices
+                # Build mapping of positive pairs by anchor graph index
+                positive_pairs_map = {}
+                for anchor_idx, other_idx, is_positive in batch_info.pair_indices:
+                    if is_positive:
+                        if anchor_idx not in positive_pairs_map:
+                            positive_pairs_map[anchor_idx] = []
+                        positive_pairs_map[anchor_idx].append(other_idx)
+
+                unique_anchors = set(anchor_idx for anchor_idx, _, _ in batch_info.pair_indices)
+
+                # Accuracy@1
+                top1_accuracy = 0
+                total_anchors = 0
+                for anchor_idx in unique_anchors:
+                    positives = positive_pairs_map.get(anchor_idx, [])
+                    if not positives:
+                        continue
+
+                    anchor_similarities = similarity_matrix[anchor_idx]
+                    anchor_similarities[anchor_idx] = -float('inf')
+                    top_idx = torch.argmax(anchor_similarities).item()
+                    is_correct = top_idx in positives
+                    top1_accuracy += int(is_correct)
+                    total_anchors += 1
+
+                if total_anchors > 0:
+                    accuracy_metrics['top1_accuracy'] = top1_accuracy / total_anchors
+
+                # Recall@k
+                k = min(5, similarity_matrix.size(0) - 1)
+                recall_at_k = 0
+                for anchor_idx in unique_anchors:
+                    positives = positive_pairs_map.get(anchor_idx, [])
+                    if not positives:
+                        continue
+
+                    sims = similarity_matrix[anchor_idx].clone()
+                    sims[anchor_idx] = -float('inf')
+                    _, top_k_indices = torch.topk(sims, k)
+                    correct = sum(1 for idx in top_k_indices if idx.item() in positives)
+                    recall_at_k += correct / len(positives)
+
+                if total_anchors > 0:
+                    accuracy_metrics[f'recall@{k}'] = recall_at_k / total_anchors
+
+                # MRR
+                mrr = 0
+                for anchor_idx in unique_anchors:
+                    positives = positive_pairs_map.get(anchor_idx, [])
+                    if not positives:
+                        continue
+
+                    sims = similarity_matrix[anchor_idx].clone()
+                    sims[anchor_idx] = -float('inf')
+                    _, indices = torch.sort(sims, descending=True)
+
+                    for rank, idx in enumerate(indices):
+                        if idx.item() in positives:
+                            mrr += 1.0 / (rank + 1)
+                            break
+
+                if total_anchors > 0:
+                    accuracy_metrics['mrr'] = mrr / total_anchors
             
         # Combine with base metrics
         combined_metrics = {**base_metrics, **accuracy_metrics}

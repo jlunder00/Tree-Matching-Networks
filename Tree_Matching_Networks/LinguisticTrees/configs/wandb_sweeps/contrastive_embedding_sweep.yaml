@@ -1,0 +1,61 @@
+# WandB Sweep Configuration for Contrastive Embedding Training
+# Purpose: Find optimal temperature and negative ratio to prevent overfitting
+# Target: tmn_embedding model showing validation plateau at epoch 4
+
+program: Tree_Matching_Networks.LinguisticTrees.experiments.train_unified
+method: grid  # Grid search to test all combinations
+metric:
+  name: val.loss
+  goal: minimize
+
+parameters:
+  # Fixed base config
+  config:
+    value: /home/jlunder/research/Tree-Matching-Networks/Tree_Matching_Networks/LinguisticTrees/configs/experiment_configs/tree_embedding_contrastive_config.yaml
+
+  mode:
+    value: contrastive
+
+  data_root:
+    value: /home/jlunder/research/Tree-Matching-Networks/data/processed_data
+
+  # Hyperparameters to sweep
+  temperature:
+    values: [0.05, 0.07, 0.10]
+
+  target_neg_to_pos_ratio:
+    values: [10, 15, 20]
+
+  pos_pairs_per_anchor:
+    values: [3, 4, 5]
+
+  anchors_per_group:
+    values: [1, 2, 3]
+
+  # Optional: learning rate sweep (currently fixed at 1e-6)
+  # learning_rate:
+  #   values: [5.0e-7, 1.0e-6, 2.0e-6]
+
+  # Fixed training settings (override config defaults)
+  n_epochs:
+    value: 15  # Shorter than full 50 for sweep efficiency
+
+  # WandB naming
+  wandb_project:
+    value: tree-embedding-sweep
+
+# Early termination to save compute
+early_terminate:
+  type: hyperband
+  min_iter: 10  # Run at least 10 epochs before considering termination
+  eta: 3
+  s: 2
+
+# Run configuration
+command:
+  - ${env}
+  - python
+  - -m
+  - ${program}
+  - ${args}
+  - --ignore_patience

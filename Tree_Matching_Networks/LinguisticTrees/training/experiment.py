@@ -30,7 +30,10 @@ class ExperimentManager:
         self.experiment_dir.mkdir(parents=True, exist_ok=True)
         self.checkpoint_dir.mkdir(exist_ok=True)
         self.config_dir.mkdir(exist_ok=True)
-        
+
+        logger.info(f"Experiment directory: {self.experiment_dir}")
+        logger.info(f"Checkpoints will be saved to: {self.checkpoint_dir}")
+
         # Save config
         self._save_config()
         

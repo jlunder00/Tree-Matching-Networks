@@ -398,7 +398,7 @@ class GraphAggregator(nn.Module):
 
         return MLP1, MLP2
 
-    def forward(self, node_states, graph_idx, n_graphs):
+    def forward(self, node_states, graph_idx, n_graphs, from_idx=None, to_idx=None, **kwargs):
         """Compute aggregated graph representations.
 
         Args:
@@ -406,11 +406,16 @@ class GraphAggregator(nn.Module):
             batch of graphs concatenated together along the first dimension.
           graph_idx: [n_nodes] int tensor, graph ID for each node.
           n_graphs: integer, number of graphs in this batch.
+          from_idx: [n_edges] int tensor, edge sources (optional, for compatibility)
+          to_idx: [n_edges] int tensor, edge targets (optional, for compatibility)
+          **kwargs: Additional arguments (ignored, for compatibility)
 
         Returns:
           graph_states: [n_graphs, graph_state_dim] float tensor, graph
             representations, one row for each graph.
         """
+        # Note: from_idx and to_idx are accepted for API compatibility with
+        # TransformerTreeAggregator but not used by this pooling aggregator
 
         node_states_g = self.MLP1(node_states)
 
@@ -577,7 +582,8 @@ class GraphEmbeddingNet(nn.Module):
 
         # these tensors may be used e.g. for visualization
         self._layer_outputs = layer_outputs
-        return self._aggregator(node_states, graph_idx, n_graphs)
+        # Pass edge info to aggregator (used by TransformerTreeAggregator, ignored by GraphAggregator)
+        return self._aggregator(node_states, graph_idx, n_graphs, from_idx=from_idx, to_idx=to_idx)
 
     def reset_n_prop_layers(self, n_prop_layers):
         """Set n_prop_layers to the provided new value.

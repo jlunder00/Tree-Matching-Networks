@@ -100,9 +100,16 @@ def train_step_infonce(model, graphs: GraphData, batch_info: PairedGroupBatchInf
             graphs.graph_idx,
             graphs.n_graphs
         )
-        
+
         # Compute loss
         loss, _, metrics = loss_fn(embeddings, batch_info)
+
+        # Add embedding diagnostics for collapse detection
+        with torch.no_grad():
+            embedding_std = embeddings.std(dim=0).mean().item()
+            embedding_mean_norm = embeddings.norm(dim=1).mean().item()
+            metrics['embedding_std'] = embedding_std
+            metrics['embedding_mean_norm'] = embedding_mean_norm
         
         # Scale loss for accumulation
         loss = loss / config['train']['gradient_accumulation_steps']

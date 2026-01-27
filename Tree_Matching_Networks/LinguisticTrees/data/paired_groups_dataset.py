@@ -494,16 +494,20 @@ class PairedGroupsDatasetBase(IterableDataset):
         node_features = []
         edge_features = []
         last_graph_idx = 0
-        
+        offset = 0  # CRITICAL FIX: Track cumulative node position offset
+
         for g in graphs:
-            from_idx.append(g.from_idx)
-            to_idx.append(g.to_idx)
+            # CRITICAL FIX: Add offset to edge indices so they point to correct node positions
+            # Without this, later graphs' edges incorrectly reference earlier graphs' nodes
+            from_idx.append(g.from_idx + offset)
+            to_idx.append(g.to_idx + offset)
             for j in range(g.n_graphs):
                 n_nodes = len(g.graph_idx[g.graph_idx == j])
                 graph_idx.append(torch.ones(n_nodes, dtype=torch.int64)*last_graph_idx)
                 last_graph_idx += 1
             node_features.append(g.node_features)
             edge_features.append(g.edge_features)
+            offset += len(g.graph_idx)  # CRITICAL FIX: Accumulate offset for next graph
 
         graph_data = GraphData(
             from_idx=torch.cat(from_idx),
@@ -518,13 +522,18 @@ class PairedGroupsDatasetBase(IterableDataset):
     def __iter__(self):
         """Iterate over batches."""
         worker_info = get_worker_info()
+        num_workers = 1
         if worker_info is not None:
             # Split files across workers
             files = list(self.file_queue)
             files = files[worker_info.id::worker_info.num_workers]
             self.file_queue = deque(files)
-        
-        max_batches = self.config['data'].get('max_batches_per_epoch', 250)
+            num_workers = worker_info.num_workers
+
+        # Total batches per epoch divided by number of workers
+        # max_batches_per_epoch represents the TOTAL number of batches desired across all workers
+        total_max_batches = self.config['data'].get('max_batches_per_epoch', 250)
+        max_batches = total_max_batches // num_workers
         
         while self._batches_provided < max_batches:
             self._fill_buffer()
@@ -544,8 +553,8 @@ class PairedGroupsDatasetBase(IterableDataset):
         Uses actual counts when available, falls back to estimates otherwise.
         """
         max_batches = self.config['data'].get('max_batches_per_epoch', 250)
-        
-        print(self.group_counts)
+
+        # print(self.group_counts)  # Debug output - commented out
         if hasattr(self, 'file_counts') and self.file_counts:
             # If we have actual group counts, use them for better estimation
             if isinstance(self, StrictMatchingDataset):
@@ -1082,6 +1091,25 @@ class EmbeddingDataset(NonStrictDataset):
             # All trees individually for embedding
             all_trees = [item['tree'] for item in batch_trees]
             return convert_tree_to_graph_data(all_trees)
+    
+    def _process_final_text_data(self, batch_trees, pair_indices):
+        """Process texts individually for embedding models (not as pairs)"""
+        text_encodings = []
+        for tree in batch_trees:
+            text = tree.get('text', '')
+            encoding = self._tokenize_text(text)
+            text_encodings.append(encoding)
+        
+        if text_encodings:
+            return {k: torch.stack([enc[k] for enc in text_encodings]) 
+                    for k in text_encodings[0].keys()}
+        else:
+            # Empty batch fallback
+            return {
+                'input_ids': torch.zeros((0, self.max_length), dtype=torch.long),
+                'attention_mask': torch.zeros((0, self.max_length), dtype=torch.long),
+                'token_type_ids': torch.zeros((0, self.max_length), dtype=torch.long)
+            }
 
 
 class MatchingDataset(NonStrictDataset):

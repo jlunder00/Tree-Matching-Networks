@@ -46,18 +46,33 @@ class BertEmbeddingNet(nn.Module):
         else:
             self.projection = nn.Identity()
     
-    def forward(self, input_ids, attention_mask, token_type_ids=None, **kwargs):
+    def forward(self, batch_encoding=None, input_ids=None, attention_mask=None, token_type_ids=None, **kwargs):
         """
-        Forward pass through BERT
+        Forward pass through BERT - handles both batch_encoding dict and individual kwargs
         
         Args:
-            input_ids: Tensor of token IDs
-            attention_mask: Tensor indicating which tokens should be attended to
-            token_type_ids: Optional tensor indicating token types
+            batch_encoding: Dictionary with 'input_ids', 'attention_mask', 'token_type_ids' keys (training pipeline)
+            input_ids: Tensor of token IDs (fallback/override)
+            attention_mask: Tensor indicating which tokens should be attended to (fallback/override)  
+            token_type_ids: Optional tensor indicating token types (fallback/override)
             
         Returns:
             Tensor of shape [batch_size, hidden_dim]
         """
+        # For each kwarg, prefer explicit value, fallback to batch_encoding
+        if input_ids is None and batch_encoding is not None:
+            input_ids = batch_encoding.get('input_ids')
+        if attention_mask is None and batch_encoding is not None:
+            attention_mask = batch_encoding.get('attention_mask')
+        if token_type_ids is None and batch_encoding is not None:
+            token_type_ids = batch_encoding.get('token_type_ids')
+            
+        # Validate required inputs
+        if input_ids is None:
+            raise ValueError("input_ids must be provided either directly or via batch_encoding")
+        if attention_mask is None:
+            raise ValueError("attention_mask must be provided either directly or via batch_encoding")
+            
         # Get BERT embeddings
         outputs = self.bert(
             input_ids=input_ids,

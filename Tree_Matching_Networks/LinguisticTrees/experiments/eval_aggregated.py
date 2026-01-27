@@ -40,26 +40,43 @@ logger = logging.getLogger(__name__)
 def load_model_from_checkpoint(checkpoint_path, base_config=None, override_config=None):
     """Load model from checkpoint"""
     checkpoint, manager, config, override = ExperimentManager.load_checkpoint(
-        checkpoint_path, 
+        checkpoint_path,
         base_config,
         override_config)
-    
+
     config = get_tree_config(
         task_type='aggregative',
-        base_config=base_config, 
+        base_config=base_config,
         override_config=override_config
-    ) 
+    )
 
+    # Determine model class based on BOTH model.name AND model_type
+    model_name = config['model'].get('name', 'tree_matching')
+    model_type = config['model'].get('model_type', 'matching')
 
-    # Create appropriate model based on config
-    if config['model'].get('model_type', 'matching') == 'embedding':
-        model = TreeEmbeddingNet(config)
+    # Create appropriate model based on architecture (BERT vs Tree) and type (matching vs embedding)
+    if 'bert' in model_name.lower():
+        # BERT models require tokenizer
+        from transformers import AutoTokenizer
+        tokenizer_path = config['model']['bert'].get('tokenizer_path', 'bert-base-uncased')
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+
+        if model_type == 'embedding':
+            from ..models.bert_embedding import BertEmbeddingNet
+            model = BertEmbeddingNet(config, tokenizer)
+        else:
+            from ..models.bert_matching import BertMatchingNet
+            model = BertMatchingNet(config, tokenizer)
     else:
-        model = TreeMatchingNet(config)
-    
+        # Tree models (default)
+        if model_type == 'embedding':
+            model = TreeEmbeddingNet(config)
+        else:
+            model = TreeMatchingNet(config)
+
     # Load state dictionary
     model.load_state_dict(checkpoint['model_state_dict'])
-    
+
     return model, config, checkpoint.get('epoch', 0)
 
 def compute_metrics(predictions, labels, task_type):
@@ -171,25 +188,33 @@ def evaluate_model(model, test_loader, loss_fn, device, config):
     )
     
     for batch_idx, (graphs, batch_info) in pbar:
-        # Move data to device
-        graphs = GraphData(
-            node_features=graphs.node_features.to(device, non_blocking=True),
-            edge_features=graphs.edge_features.to(device, non_blocking=True),
-            from_idx=graphs.from_idx.to(device, non_blocking=True),
-            to_idx=graphs.to_idx.to(device, non_blocking=True),
-            graph_idx=graphs.graph_idx.to(device, non_blocking=True),
-            n_graphs=graphs.n_graphs
-        )
-        
-        # Forward pass to get tree embeddings
-        embeddings = model(
-            graphs.node_features,
-            graphs.edge_features,
-            graphs.from_idx,
-            graphs.to_idx,
-            graphs.graph_idx,
-            graphs.n_graphs
-        )
+        # Check if we're using text mode (BERT) or graph mode (Tree)
+        text_mode = config.get('text_mode', False)
+
+        if text_mode:
+            # BERT models: graphs is actually batch_encoding dict
+            batch_encoding = {k: v.to(device, non_blocking=True) for k, v in graphs.items()}
+            embeddings = model(batch_encoding=batch_encoding)
+        else:
+            # Tree models: graphs is GraphData
+            graphs = GraphData(
+                node_features=graphs.node_features.to(device, non_blocking=True),
+                edge_features=graphs.edge_features.to(device, non_blocking=True),
+                from_idx=graphs.from_idx.to(device, non_blocking=True),
+                to_idx=graphs.to_idx.to(device, non_blocking=True),
+                graph_idx=graphs.graph_idx.to(device, non_blocking=True),
+                n_graphs=graphs.n_graphs
+            )
+
+            # Forward pass to get tree embeddings
+            embeddings = model(
+                graphs.node_features,
+                graphs.edge_features,
+                graphs.from_idx,
+                graphs.to_idx,
+                graphs.graph_idx,
+                graphs.n_graphs
+            )
         
         # Compute loss and get predictions
         # The loss function handles aggregating tree embeddings to text embeddings
@@ -294,7 +319,15 @@ def main():
         label_norm = {'old':(0, 1), 'new':(-1, 1)}
     else:
         label_norm = None
-    
+
+    # Check if we need text_mode (for BERT models)
+    text_mode = config.get('text_mode', False)
+    tokenizer = None
+    if text_mode:
+        from transformers import AutoTokenizer
+        tokenizer_path = config['model']['bert'].get('tokenizer_path', 'bert-base-uncased')
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+
     # Create test dataset with sequential processing
     test_dataset = create_paired_groups_dataset(
         data_dir=[str(path) for path in data_config.test_paths],
@@ -307,7 +340,11 @@ def main():
         max_active_files=4,
         min_trees_per_group=1,
         label_map=label_map,
-        label_norm=label_norm
+        label_norm=label_norm,
+        text_mode=text_mode,
+        allow_text_files=config.get('allow_text_files', False),
+        tokenizer=tokenizer,
+        max_length=config['model']['bert'].get('max_position_embeddings', 512) if text_mode else None
     )
     
     # Create sequential dataloader
