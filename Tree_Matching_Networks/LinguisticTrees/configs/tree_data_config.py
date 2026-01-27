@@ -79,7 +79,8 @@ class TreeDataConfig:
         # Add suffixes if appropriate
         # For train split: _full and _sharded are mutually exclusive
         # (_full datasets are already in non-sharded format)
-        if split == 'train' and self.use_full_suffix:
+        # IMPORTANT: _full suffix only applies to SNLI, not WikiQS/AmazonQA/etc.
+        if split == 'train' and self.use_full_suffix and base_dataset == 'snli':
             base_dir += '_full'
         elif split == 'train' and self.use_sharded_train:
             base_dir += '_sharded'

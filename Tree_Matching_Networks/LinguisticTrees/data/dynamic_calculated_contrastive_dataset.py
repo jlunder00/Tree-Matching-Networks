@@ -775,10 +775,12 @@ class DynamicCalculatedContrastiveDataset(IterableDataset):
                 text_list = []
                 
                 # Create pairs from batch_trees based on positive pairs
+                # FIXED: Use pair-based embedding indices (not tree indices) for consistency with tree models
                 for pair_idx, (anchor_idx, pos_idx) in enumerate(positive_pairs):
-                    text_a = batch_trees[pair_idx*2].get('text', '')
-                    text_b = batch_trees[pair_idx*2+1].get('text', '')
-                    all_pair_info.append((anchor_idx, pos_idx, True))
+                    text_a = batch_trees[anchor_idx].get('text', '')
+                    text_b = batch_trees[pos_idx].get('text', '')
+                    # Use embedding indices: pair_idx * 2, pair_idx * 2 + 1 (matches tree model code at line 864)
+                    all_pair_info.append((pair_idx * 2, pair_idx * 2 + 1, True))
                     text_list.extend([text_a, text_b])
                     if anchor_idx in anchor_positive_indexes.keys():
                         anchor_positive_indexes[anchor_idx].append(pair_idx)

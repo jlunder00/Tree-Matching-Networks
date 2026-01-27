@@ -58,6 +58,9 @@ class TreeMatchingNet(nn.Module):
             # Use transformer-based aggregation with shape-aware positional encoding
             from ...GMN.transformer_tree_aggregator import TransformerTreeAggregator
 
+            # Get internal_dim for dimension expansion (None = use node_state_dim)
+            internal_dim = transformer_config.get('internal_dim', None)
+
             aggregator = TransformerTreeAggregator(
                 node_state_dim=node_state_dim,
                 graph_rep_dim=graph_rep_dim,
@@ -66,10 +69,13 @@ class TreeMatchingNet(nn.Module):
                 num_layers=transformer_config.get('num_layers', 2),
                 dropout=transformer_config.get('dropout', 0.1),
                 positional_features=transformer_config.get('positional_features', None),
-                positional_max_values=transformer_config.get('positional_max_values', None)
+                positional_max_values=transformer_config.get('positional_max_values', None),
+                internal_dim=internal_dim
             )
 
             print(f"Using TransformerTreeAggregator:")
+            print(f"  node_state_dim: {node_state_dim}")
+            print(f"  internal_dim: {internal_dim if internal_dim else node_state_dim} (no expansion)" if not internal_dim else f"  internal_dim: {internal_dim} (dimension expansion)")
             print(f"  max_nodes: {transformer_config.get('max_nodes', 64)}")
             print(f"  num_heads: {transformer_config.get('num_heads', 8)}")
             print(f"  num_layers: {transformer_config.get('num_layers', 2)}")

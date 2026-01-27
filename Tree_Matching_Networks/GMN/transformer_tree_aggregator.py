@@ -4,6 +4,10 @@ Transformer-Based Tree Aggregation
 
 Replaces simple pooling aggregation with multi-headed self-attention over nodes,
 using tree shape-based positional encoding.
+
+Supports dimension expansion: node states from graph propagation can be projected
+to a larger internal dimension before the transformer, allowing more parameters
+in the aggregation stage without increasing graph propagation cost.
 """
 
 import torch
@@ -17,6 +21,10 @@ class TransformerTreeAggregator(nn.Module):
 
     Replaces GraphAggregator's simple pooling with multi-headed self-attention.
     Maintains same interface for drop-in compatibility.
+
+    Supports dimension expansion via internal_dim parameter:
+    - If internal_dim > node_state_dim: projects up before transformer
+    - If internal_dim == node_state_dim or None: no projection (original behavior)
     """
 
     def __init__(self,
@@ -27,18 +35,22 @@ class TransformerTreeAggregator(nn.Module):
                  num_layers=2,
                  dropout=0.1,
                  positional_features=None,
-                 positional_max_values=None):
+                 positional_max_values=None,
+                 internal_dim=None):
         """
         Args:
             node_state_dim: Dimension of node states from graph propagation
             graph_rep_dim: Output dimension for graph representation
             max_nodes: Maximum nodes per tree (for padding/memory allocation)
-            num_heads: Number of attention heads
+            num_heads: Number of attention heads (must divide internal_dim)
             num_layers: Number of transformer encoder layers
             dropout: Dropout probability
             positional_features: List of features for positional encoding
                                 (None = use all available)
             positional_max_values: Dict of max values for positional features
+            internal_dim: Internal dimension for transformer processing.
+                         If None or equal to node_state_dim, no projection is used.
+                         If larger, adds a linear projection for dimension expansion.
         """
         super().__init__()
 
@@ -46,20 +58,42 @@ class TransformerTreeAggregator(nn.Module):
         self.graph_rep_dim = graph_rep_dim
         self.max_nodes = max_nodes
 
+        # Determine internal dimension (dimension used inside transformer)
+        if internal_dim is None or internal_dim == node_state_dim:
+            self.internal_dim = node_state_dim
+            self.use_input_projection = False
+        else:
+            self.internal_dim = internal_dim
+            self.use_input_projection = True
+
+        # Validate that internal_dim is divisible by num_heads
+        if self.internal_dim % num_heads != 0:
+            raise ValueError(
+                f"internal_dim ({self.internal_dim}) must be divisible by num_heads ({num_heads})"
+            )
+
+        # Input projection: node_state_dim -> internal_dim (single linear layer)
+        # Applied per-node to project to transformer's working dimension
+        if self.use_input_projection:
+            self.input_projection = nn.Linear(node_state_dim, self.internal_dim)
+            print(f"TransformerTreeAggregator: Using dimension expansion {node_state_dim} -> {self.internal_dim}")
+        else:
+            self.input_projection = nn.Identity()
+
         # Positional encoder with LEARNED embeddings
-        # Initialized with sinusoidal patterns, then made learnable (like BERT)
+        # Uses internal_dim since it's applied after input projection
         self.pos_encoder = TreeShapePositionalEncoder(
-            embed_dim=node_state_dim,
+            embed_dim=self.internal_dim,
             max_values=positional_max_values,
             features=positional_features,
             learned=True  # Use learned positional embeddings
         )
 
-        # Transformer encoder layers
+        # Transformer encoder layers (operates at internal_dim)
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model=node_state_dim,
+            d_model=self.internal_dim,
             nhead=num_heads,
-            dim_feedforward=node_state_dim * 4,  # Standard: 4x expansion
+            dim_feedforward=self.internal_dim * 4,  # Standard: 4x expansion
             dropout=dropout,
             batch_first=True,  # Input shape: [batch, seq, features]
             norm_first=False,  # Post-norm (standard Transformer)
@@ -72,14 +106,13 @@ class TransformerTreeAggregator(nn.Module):
         )
 
         # Output projection to graph representation dimension
-        # (if node_state_dim != graph_rep_dim)
-        if node_state_dim != graph_rep_dim:
-            self.output_projection = nn.Linear(node_state_dim, graph_rep_dim)
+        if self.internal_dim != graph_rep_dim:
+            self.output_projection = nn.Linear(self.internal_dim, graph_rep_dim)
         else:
             self.output_projection = nn.Identity()
 
-        # Layer norm before output
-        self.output_norm = nn.LayerNorm(node_state_dim)
+        # Layer norm before output (at internal_dim)
+        self.output_norm = nn.LayerNorm(self.internal_dim)
 
     def forward(self, node_states, graph_idx, n_graphs, from_idx=None, to_idx=None):
         """
@@ -95,21 +128,25 @@ class TransformerTreeAggregator(nn.Module):
         Returns:
             graph_embeddings: [n_graphs, graph_rep_dim]
         """
-        # Compute positional encodings
+        # Project node states to internal dimension (if using dimension expansion)
+        # node_states: [n_total_nodes, node_state_dim] -> [n_total_nodes, internal_dim]
+        projected_states = self.input_projection(node_states)
+
+        # Compute positional encodings (at internal_dim)
         if from_idx is not None and to_idx is not None:
             pos_encodings = self.pos_encoder(from_idx, to_idx, graph_idx, n_graphs)
         else:
             # Fallback: zero positional encoding (shouldn't happen in normal use)
-            pos_encodings = torch.zeros_like(node_states)
+            pos_encodings = torch.zeros_like(projected_states)
 
-        # Add positional encoding to node states
-        node_states_with_pos = node_states + pos_encodings
+        # Add positional encoding to projected node states
+        node_states_with_pos = projected_states + pos_encodings
 
         # Group nodes by graph and pad to max_nodes
         batched_nodes, padding_mask = self._group_and_pad(
             node_states_with_pos, graph_idx, n_graphs
         )
-        # batched_nodes: [n_graphs, max_nodes, node_state_dim]
+        # batched_nodes: [n_graphs, max_nodes, internal_dim]
         # padding_mask: [n_graphs, max_nodes] (True = padding position)
 
         # Apply transformer encoder
@@ -118,11 +155,11 @@ class TransformerTreeAggregator(nn.Module):
             batched_nodes,
             src_key_padding_mask=padding_mask
         )
-        # attended_nodes: [n_graphs, max_nodes, node_state_dim]
+        # attended_nodes: [n_graphs, max_nodes, internal_dim]
 
         # Aggregate to graph representation (mean pooling over non-padded nodes)
         graph_embeddings = self._aggregate_nodes(attended_nodes, padding_mask)
-        # graph_embeddings: [n_graphs, node_state_dim]
+        # graph_embeddings: [n_graphs, internal_dim]
 
         # Normalize and project to final dimension
         graph_embeddings = self.output_norm(graph_embeddings)
@@ -135,15 +172,19 @@ class TransformerTreeAggregator(nn.Module):
         """
         Group nodes by graph and pad to fixed max_nodes size.
 
+        Args:
+            node_states: [n_total_nodes, internal_dim] (already projected if using expansion)
+
         Returns:
-            batched_nodes: [n_graphs, max_nodes, node_state_dim]
+            batched_nodes: [n_graphs, max_nodes, internal_dim]
             padding_mask: [n_graphs, max_nodes] (True for padding positions)
         """
         device = node_states.device
+        feature_dim = node_states.size(-1)  # internal_dim after projection
 
         # Pre-allocate batched tensor
         batched_nodes = torch.zeros(
-            n_graphs, self.max_nodes, self.node_state_dim,
+            n_graphs, self.max_nodes, feature_dim,
             dtype=node_states.dtype, device=device
         )
 
