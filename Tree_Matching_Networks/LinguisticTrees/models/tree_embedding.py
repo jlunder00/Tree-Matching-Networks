@@ -50,6 +50,10 @@ class TreeEmbeddingNet(GraphEmbeddingNet):
             # Get internal_dim for dimension expansion (None = use node_state_dim)
             internal_dim = transformer_config.get('internal_dim', None)
 
+            # CLS token configuration
+            use_cls_token = transformer_config.get('use_cls_token', False)
+            cls_token_type = transformer_config.get('cls_token_type', 'virtual')
+
             aggregator = TransformerTreeAggregator(
                 node_state_dim=node_state_dim,
                 graph_rep_dim=graph_rep_dim,
@@ -59,7 +63,9 @@ class TreeEmbeddingNet(GraphEmbeddingNet):
                 dropout=transformer_config.get('dropout', 0.1),
                 positional_features=transformer_config.get('positional_features', None),
                 positional_max_values=transformer_config.get('positional_max_values', None),
-                internal_dim=internal_dim
+                internal_dim=internal_dim,
+                use_cls_token=use_cls_token,
+                cls_token_type=cls_token_type
             )
 
             print(f"Using TransformerTreeAggregator:")
@@ -69,6 +75,8 @@ class TreeEmbeddingNet(GraphEmbeddingNet):
             print(f"  num_heads: {transformer_config.get('num_heads', 8)}")
             print(f"  num_layers: {transformer_config.get('num_layers', 2)}")
             print(f"  positional_features: {transformer_config.get('positional_features', 'all')}")
+            if use_cls_token:
+                print(f"  use_cls_token: True (type: {cls_token_type})")
         else:
             # Use standard pooling-based aggregation (default)
             aggregator = GraphAggregator(
