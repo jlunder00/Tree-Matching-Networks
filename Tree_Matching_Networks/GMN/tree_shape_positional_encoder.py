@@ -436,3 +436,42 @@ class TreeShapePositionalEncoder(nn.Module):
             }
 
         return info
+
+    def get_root_indices(self, from_idx, to_idx, graph_idx, n_graphs):
+        """
+        Identify the root node index for each graph in the batch.
+
+        The root is defined as the node with no parent (not a target of any edge).
+        In dependency trees, this is typically the main verb or sentence root.
+
+        Args:
+            from_idx: [n_edges] edge source indices (parents)
+            to_idx: [n_edges] edge target indices (children)
+            graph_idx: [n_nodes] which graph each node belongs to
+            n_graphs: int, number of graphs in batch
+
+        Returns:
+            root_indices: [n_graphs] tensor of root node indices (global batch indices)
+        """
+        device = graph_idx.device
+        root_indices = torch.zeros(n_graphs, dtype=torch.long, device=device)
+
+        for g in range(n_graphs):
+            node_mask = (graph_idx == g)
+            graph_nodes = torch.where(node_mask)[0].tolist()
+
+            if not graph_nodes:
+                continue
+
+            # Filter edges to only those within this graph
+            edge_mask = (graph_idx[from_idx] == g) & (graph_idx[to_idx] == g)
+            graph_to_idx = to_idx[edge_mask].tolist()
+
+            # Build set of nodes that are children (have incoming edges)
+            children_set = set(graph_to_idx)
+
+            # Root is a node with no parent (not in children_set)
+            roots = [n for n in graph_nodes if n not in children_set]
+            root_indices[g] = roots[0] if roots else graph_nodes[0]
+
+        return root_indices
