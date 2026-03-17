@@ -8,6 +8,7 @@ import torch
 import pytest
 import sys
 from pathlib import Path
+import re
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -35,7 +36,8 @@ def simple_tree():
       1   2
     """
     return {
-        "node_states_dim": 3,  # n_nodes
+        "node_state_dim": 1280,
+        "n_nodes": 3,  # n_nodes
         "from_idx": torch.tensor([0, 0]),
         "to_idx": torch.tensor([1, 2]),
         "graph_idx": torch.tensor([0, 0, 0]),
@@ -80,6 +82,7 @@ def binary_trees_batch():
     ])
 
     return {
+        "node_state_dim": 1280,
         "n_nodes": n_nodes,
         "from_idx": torch.tensor(from_idx),
         "to_idx": torch.tensor(to_idx),
@@ -130,30 +133,138 @@ def text_config():
         },
     }
 
+def get_node_states(n_nodes, node_state_dim):
+    return torch.randn(n_nodes, node_state_dim)
+
 
 # ---------------------------------------------------------------------------
 # Tests: PretrainedTransformerAggregator
 # ---------------------------------------------------------------------------
 
 class TestPretrainedTransformerAggregator:
-    """Tests for the core pretrained aggregator component (Issue #3)."""
+    """Tests for th we core pretrained aggregator component (Issue #3)."""
 
-    # TODO: test output shape with single graph
+    # test output shape with single graph
     def testShapeSingle(self, simple_tree):
+        tree = simple_tree
         agg = PretrainedTransformerAggregator(
-            node_state_dim=1280, graph_rep_dim=2048,
+            node_state_dim=tree['node_state_dim'], graph_rep_dim=2048,
             hf_model_name='sentence-transformers/all-MiniLM-L6-v2',
             max_nodes=64
         )
-        tree = simple_tree
-        out = agg(tree['node_states_dim'], tree['graph_idx'], 1, from_idx = tree['from_idx'], to_idx = tree['to_idx'])
+
+        
+        out = agg(get_node_states(tree['n_nodes'], tree['node_state_dim']), tree['graph_idx'], 1, from_idx = tree['from_idx'], to_idx = tree['to_idx'])
         print(f'Output shape: {out.shape}')
-        assert out.shape == (2, 2048)
+        assert out.shape == (1, 2048)
 
     # TODO: test output shape with batched graphs
+    def testShapeBatch(self, binary_trees_batch):
+        agg = PretrainedTransformerAggregator(
+            node_state_dim=binary_trees_batch['node_state_dim'], graph_rep_dim=2048,
+            hf_model_name='sentence-transformers/all-MiniLM-L6-v2',
+            max_nodes=64
+        )
+
+        
+        out = agg(get_node_states(binary_trees_batch['n_nodes'], binary_trees_batch['node_state_dim']), binary_trees_batch['graph_idx'], binary_trees_batch['n_graphs'], from_idx = binary_trees_batch['from_idx'], to_idx = binary_trees_batch['to_idx'])
+        print(f'Output shape: {out.shape}')
+        assert out.shape == (3, 2048)
+
     # TODO: test freeze_transformer freezes encoder params only
-    # TODO: test unfreeze_transformer restores requires_grad
     # TODO: test input_projection and pos_encoder stay trainable when frozen
+    def testFreezeTransformerFreezesEncoderOnly(self, simple_tree):
+        agg = PretrainedTransformerAggregator(
+            node_state_dim=simple_tree['node_state_dim'], graph_rep_dim=2048,
+            hf_model_name='sentence-transformers/all-MiniLM-L6-v2',
+            max_nodes=64,
+            freeze_transformer=True,
+            use_cls_token=True
+        )
+        
+        param_tracker = {
+			r'^input_projection\.': {
+				'should_train': True,
+				'seen': False
+			},
+			r'^pos_encoder\.': {
+				'should_train': True,
+				'seen': False
+			},
+			r'^output_projection\.': {
+				'should_train': True,
+				'seen': False
+			},
+			r'^output_norm\.': {
+				'should_train': True,
+				'seen': False
+			},
+			r'^cls_embedding$': {
+				'should_train': True,
+				'seen': False
+			},
+			r'^encoder\.': {
+				'should_train': False,
+				'seen': False
+			}
+        }
+        for name, param in agg.named_parameters():
+            for pattern, data in param_tracker.items():
+                if re.match(pattern, name):
+                    data['seen'] = True
+                    t = param.requires_grad
+                    print(f'Parameter {name} is{"" if t else " not"} trainable')
+                    assert t == data['should_train'] 
+
+        assert all([v['seen'] for _, v in param_tracker.items()])
+
+    # TODO: test unfreeze_transformer restores requires_grad
+    def testUnfreezeTransformerRestoresTrainability(self, simple_tree):
+        agg = PretrainedTransformerAggregator(
+            node_state_dim=simple_tree['node_state_dim'], graph_rep_dim=2048,
+            hf_model_name='sentence-transformers/all-MiniLM-L6-v2',
+            max_nodes=64,
+            freeze_transformer=True,
+            use_cls_token=True
+        )
+
+        agg.unfreeze_transformer()
+        
+        param_tracker = {
+			r'^input_projection\.': {
+				'should_train': True,
+				'seen': False
+			},
+			r'^pos_encoder\.': {
+				'should_train': True,
+				'seen': False
+			},
+			r'^output_projection\.': {
+				'should_train': True,
+				'seen': False
+			},
+			r'^output_norm\.': {
+				'should_train': True,
+				'seen': False
+			},
+			r'^cls_embedding$': {
+				'should_train': True,
+				'seen': False
+			},
+			r'^encoder\.': {
+				'should_train': True,
+				'seen': False
+			}
+        }
+        for name, param in agg.named_parameters():
+            for pattern, data in param_tracker.items():
+                if re.match(pattern, name):
+                    data['seen'] = True
+                    t = param.requires_grad
+                    print(f'Parameter {name} is{"" if t else " not"} trainable')
+                    assert t == data['should_train'] 
+
+        assert all([v['seen'] for _, v in param_tracker.items()])
     # TODO: test get_parameter_groups returns correct grouping
     # TODO: test get_parameter_groups excludes frozen params
     # TODO: test with CLS token (virtual)
