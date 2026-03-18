@@ -283,9 +283,66 @@ class TestPretrainedTransformerAggregator:
 
 
     # TODO: test get_parameter_groups excludes frozen params
+    def testFrozenParamGroups(self, simple_tree):
+        agg = PretrainedTransformerAggregator(
+            node_state_dim=simple_tree['node_state_dim'], graph_rep_dim=2048,
+            hf_model_name='sentence-transformers/all-MiniLM-L6-v2',
+            max_nodes=64,
+            freeze_transformer=True,
+            use_cls_token=True
+        )
+        
+        groups = agg.get_parameter_groups(base_lr=1e-4, pretrained_lr_scale=0.1)
+        assert len(groups) == 1
+        assert groups[0].get('lr', 0) == 1e-4
+
+
     # TODO: test with CLS token (virtual)
+    def testCLSVirtual(self, simple_tree):
+        tree = simple_tree
+        agg = PretrainedTransformerAggregator(
+            node_state_dim=tree['node_state_dim'], graph_rep_dim=2048,
+            hf_model_name='sentence-transformers/all-MiniLM-L6-v2',
+            max_nodes=64,
+            use_cls_token=True,
+            cls_token_type="virtual"
+        )
+
+        
+        out = agg(get_node_states(tree['n_nodes'], tree['node_state_dim']), tree['graph_idx'], 1, from_idx = tree['from_idx'], to_idx = tree['to_idx'])
+        print(f'Output shape: {out.shape}')
+        assert out.shape == (1, 2048)
+
     # TODO: test with CLS token (root)
+    def testCLSRoot(self, simple_tree):
+        tree = simple_tree
+        agg = PretrainedTransformerAggregator(
+            node_state_dim=tree['node_state_dim'], graph_rep_dim=2048,
+            hf_model_name='sentence-transformers/all-MiniLM-L6-v2',
+            max_nodes=64,
+            use_cls_token=True,
+            cls_token_type="root"
+        )
+
+        
+        out = agg(get_node_states(tree['n_nodes'], tree['node_state_dim']), tree['graph_idx'], 1, from_idx = tree['from_idx'], to_idx = tree['to_idx'])
+        print(f'Output shape: {out.shape}')
+        assert out.shape == (1, 2048)
+
     # TODO: test mean pooling aggregation (no CLS)
+    def testNoCLS(self, simple_tree):
+        tree = simple_tree
+        agg = PretrainedTransformerAggregator(
+            node_state_dim=tree['node_state_dim'], graph_rep_dim=2048,
+            hf_model_name='sentence-transformers/all-MiniLM-L6-v2',
+            max_nodes=64,
+            use_cls_token=False
+        )
+
+        
+        out = agg(get_node_states(tree['n_nodes'], tree['node_state_dim']), tree['graph_idx'], 1, from_idx = tree['from_idx'], to_idx = tree['to_idx'])
+        print(f'Output shape: {out.shape}')
+        assert out.shape == (1, 2048)
     pass
 
 
