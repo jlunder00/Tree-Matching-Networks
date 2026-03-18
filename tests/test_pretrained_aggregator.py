@@ -265,7 +265,23 @@ class TestPretrainedTransformerAggregator:
                     assert t == data['should_train'] 
 
         assert all([v['seen'] for _, v in param_tracker.items()])
+
     # TODO: test get_parameter_groups returns correct grouping
+    def testParameterGroups(self, simple_tree):
+        agg = PretrainedTransformerAggregator(
+            node_state_dim=simple_tree['node_state_dim'], graph_rep_dim=2048,
+            hf_model_name='sentence-transformers/all-MiniLM-L6-v2',
+            max_nodes=64,
+            use_cls_token=True
+        )
+
+        groups = agg.get_parameter_groups(base_lr=1e-4, pretrained_lr_scale=0.1)
+        assert len(groups) == 2
+        assert groups[0].get('lr', 0) == 1e-4
+        assert groups[1].get('lr', 0) == 1e-5
+
+
+
     # TODO: test get_parameter_groups excludes frozen params
     # TODO: test with CLS token (virtual)
     # TODO: test with CLS token (root)
