@@ -17,6 +17,12 @@ from Tree_Matching_Networks.GMN.pretrained_transformer_aggregator import (
     PretrainedTransformerAggregator,
     extract_encoder_from_hf_model,
 )
+from Tree_Matching_Networks.LinguisticTrees.models.pretrained_noprop_embedding import PretrainedNoPropEmbeddingNet
+from Tree_Matching_Networks.LinguisticTrees.models.pretrained_noprop_matching import PretrainedNoPropMatchingNet
+from Tree_Matching_Networks.LinguisticTrees.models.pretrained_tree_embedding import PretrainedTreeEmbeddingNet
+from Tree_Matching_Networks.LinguisticTrees.models.pretrained_tree_matching import PretrainedTreeMatchingNet
+from Tree_Matching_Networks.LinguisticTrees.models.pretrained_text_embedding import PretrainedTextEmbeddingNet
+from Tree_Matching_Networks.LinguisticTrees.models.pretrained_text_matching import PretrainedTextMatchingNet
 
 # Default HF model for tests — small and fast to load
 HF_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
@@ -353,9 +359,22 @@ class TestPretrainedTransformerAggregator:
 class TestPretrainedNoPropEmbedding:
     """Tests for Condition B embedding model (Issue #4)."""
 
-    # TODO: test forward produces correct output shape
-    # TODO: test freeze/unfreeze delegation to aggregator
-    pass
+    def test_forward_shape(self, binary_trees_batch, prop_heavy_config):
+        model = PretrainedNoPropEmbeddingNet(prop_heavy_config)
+        batch = binary_trees_batch
+        node_features = torch.randn(batch['n_nodes'], 804)
+        edge_features = torch.randn(len(batch['from_idx']), 70)
+        out = model(node_features, edge_features,
+                    batch['from_idx'], batch['to_idx'],
+                    batch['graph_idx'], batch['n_graphs'])
+        assert out.shape == (3, 2048)
+
+    def test_freeze_delegates_to_aggregator(self, prop_heavy_config):
+        model = PretrainedNoPropEmbeddingNet(prop_heavy_config)
+        model.freeze_transformer()
+        assert all(not p.requires_grad for p in model.aggregator.encoder.parameters())
+        model.unfreeze_transformer()
+        assert all(p.requires_grad for p in model.aggregator.encoder.parameters())
 
 
 # ---------------------------------------------------------------------------
@@ -365,11 +384,44 @@ class TestPretrainedNoPropEmbedding:
 class TestPretrainedTreeEmbedding:
     """Tests for Conditions D/E/F embedding model (Issue #4)."""
 
-    # TODO: test forward produces correct output shape
-    # TODO: test freeze_propagation freezes encoder + prop layers
-    # TODO: test freeze_transformer freezes aggregator encoder
-    # TODO: test both freezes simultaneously (Condition: frozen everything = no grad)
-    pass
+    def test_forward_shape(self, binary_trees_batch, prop_heavy_config):
+        model = PretrainedTreeEmbeddingNet(prop_heavy_config)
+        batch = binary_trees_batch
+        node_features = torch.randn(batch['n_nodes'], 804)
+        edge_features = torch.randn(len(batch['from_idx']), 70)
+        out = model(node_features, edge_features,
+                    batch['from_idx'], batch['to_idx'],
+                    batch['graph_idx'], batch['n_graphs'])
+        assert out.shape == (3, 2048)
+
+    def test_freeze_propagation(self, prop_heavy_config):
+        model = PretrainedTreeEmbeddingNet(prop_heavy_config)
+        model.freeze_propagation()
+        # Encoder and prop layers should be frozen
+        assert all(not p.requires_grad for p in model._encoder.parameters())
+        for layer in model._prop_layers:
+            assert all(not p.requires_grad for p in layer.parameters())
+        # Aggregator should still be trainable
+        assert any(p.requires_grad for p in model._aggregator.parameters())
+
+    def test_freeze_transformer(self, prop_heavy_config):
+        model = PretrainedTreeEmbeddingNet(prop_heavy_config)
+        model.freeze_transformer()
+        # HF encoder in aggregator should be frozen
+        assert all(not p.requires_grad for p in model._aggregator.encoder.parameters())
+        # GNN should still be trainable
+        assert any(p.requires_grad for p in model._encoder.parameters())
+
+    def test_freeze_both(self, prop_heavy_config):
+        model = PretrainedTreeEmbeddingNet(prop_heavy_config)
+        model.freeze_propagation()
+        model.freeze_transformer()
+        # Only projections, pos_encoder, output layers should be trainable
+        trainable = [n for n, p in model.named_parameters() if p.requires_grad]
+        assert len(trainable) > 0, "Some params should still be trainable"
+        for name in trainable:
+            assert not name.startswith('_encoder.'), f"Encoder param {name} should be frozen"
+            assert '_aggregator.encoder.' not in name, f"HF encoder param {name} should be frozen"
 
 
 # ---------------------------------------------------------------------------
@@ -379,9 +431,27 @@ class TestPretrainedTreeEmbedding:
 class TestPretrainedTextEmbedding:
     """Tests for Condition A embedding model (Issue #4)."""
 
-    # TODO: test forward with tokenized text produces correct output shape
-    # TODO: test freeze/unfreeze
-    pass
+    def test_forward_shape(self, text_config):
+        from transformers import AutoTokenizer
+        tokenizer = AutoTokenizer.from_pretrained(HF_MODEL_NAME)
+        model = PretrainedTextEmbeddingNet(text_config, tokenizer)
+        batch_encoding = tokenizer(
+            ['The cat sat on the mat.', 'A dog ran in the park.'],
+            padding=True, truncation=True, return_tensors='pt'
+        )
+        out = model(batch_encoding)
+        assert out.shape == (2, 2048)
+
+    def test_freeze_unfreeze(self, text_config):
+        from transformers import AutoTokenizer
+        tokenizer = AutoTokenizer.from_pretrained(HF_MODEL_NAME)
+        model = PretrainedTextEmbeddingNet(text_config, tokenizer)
+        model.freeze_transformer()
+        assert all(not p.requires_grad for p in model.transformer.parameters())
+        # Projection should still be trainable
+        assert all(p.requires_grad for p in model.projection.parameters())
+        model.unfreeze_transformer()
+        assert all(p.requires_grad for p in model.transformer.parameters())
 
 
 # ---------------------------------------------------------------------------
@@ -391,20 +461,74 @@ class TestPretrainedTextEmbedding:
 class TestPretrainedTreeMatching:
     """Tests for Conditions D/E/F matching model (Issue #5)."""
 
-    # TODO: test forward with even number of graphs
-    # TODO: test freeze_propagation / freeze_transformer
-    pass
+    def test_forward_shape(self, prop_heavy_config):
+        model = PretrainedTreeMatchingNet(prop_heavy_config)
+        # Matching needs even number of graphs (pairs)
+        from_idx = []
+        to_idx = []
+        for i in range(1, 8):
+            from_idx.append((i - 1) // 2)
+            to_idx.append(i)
+        for i in range(9, 16):
+            from_idx.append(8 + (i - 9) // 2)
+            to_idx.append(i)
+        for i in range(17, 24):
+            from_idx.append(16 + (i - 17) // 2)
+            to_idx.append(i)
+        for i in range(25, 32):
+            from_idx.append(24 + (i - 25) // 2)
+            to_idx.append(i)
+
+        n_nodes = 32
+        graph_idx = torch.cat([
+            torch.full((8,), 0, dtype=torch.long),
+            torch.full((8,), 1, dtype=torch.long),
+            torch.full((8,), 2, dtype=torch.long),
+            torch.full((8,), 3, dtype=torch.long),
+        ])
+        node_features = torch.randn(n_nodes, 804)
+        edge_features = torch.randn(len(from_idx), 70)
+        out = model(node_features, edge_features,
+                    torch.tensor(from_idx), torch.tensor(to_idx),
+                    graph_idx, 4)
+        assert out.shape == (4, 2048)
+
+    def test_freeze_propagation(self, prop_heavy_config):
+        model = PretrainedTreeMatchingNet(prop_heavy_config)
+        model.freeze_propagation()
+        assert all(not p.requires_grad for p in model.gmn._encoder.parameters())
+
+    def test_freeze_transformer(self, prop_heavy_config):
+        model = PretrainedTreeMatchingNet(prop_heavy_config)
+        model.freeze_transformer()
+        assert all(not p.requires_grad for p in model.gmn._aggregator.encoder.parameters())
 
 
 class TestPretrainedTextMatching:
     """Tests for Condition A matching model (Issue #5)."""
 
-    # TODO: test forward with paired text input
-    pass
+    def test_forward_shape(self, text_config):
+        from transformers import AutoTokenizer
+        tokenizer = AutoTokenizer.from_pretrained(HF_MODEL_NAME)
+        model = PretrainedTextMatchingNet(text_config, tokenizer)
+        # Matching needs even batch size (pairs)
+        batch_encoding = tokenizer(
+            ['The cat sat.', 'A dog ran.', 'Birds flew high.', 'Fish swam deep.'],
+            padding=True, truncation=True, return_tensors='pt'
+        )
+        out = model(batch_encoding)
+        assert out.shape == (4, 2048)
 
 
 class TestPretrainedNoPropMatching:
     """Tests for Condition B matching model (Issue #5)."""
 
-    # TODO: test forward produces correct output shape
-    pass
+    def test_forward_shape(self, binary_trees_batch, prop_heavy_config):
+        model = PretrainedNoPropMatchingNet(prop_heavy_config)
+        batch = binary_trees_batch
+        node_features = torch.randn(batch['n_nodes'], 804)
+        edge_features = torch.randn(len(batch['from_idx']), 70)
+        out = model(node_features, edge_features,
+                    batch['from_idx'], batch['to_idx'],
+                    batch['graph_idx'], batch['n_graphs'])
+        assert out.shape == (3, 2048)

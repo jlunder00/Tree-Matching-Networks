@@ -25,6 +25,12 @@ try:
     from ..models.tree_embedding import TreeEmbeddingNet
     from ..models.bert_embedding import BertEmbeddingNet
     from ..models.bert_matching import BertMatchingNet
+    from ..models.pretrained_text_embedding import PretrainedTextEmbeddingNet
+    from ..models.pretrained_text_matching import PretrainedTextMatchingNet
+    from ..models.pretrained_tree_embedding import PretrainedTreeEmbeddingNet
+    from ..models.pretrained_tree_matching import PretrainedTreeMatchingNet
+    from ..models.pretrained_noprop_embedding import PretrainedNoPropEmbeddingNet
+    from ..models.pretrained_noprop_matching import PretrainedNoPropMatchingNet
     from ..training.experiment import ExperimentManager
     from ..training.train import train_epoch
     from ..training.validation import validate_epoch
@@ -39,6 +45,12 @@ except ImportError:
     from Tree_Matching_Networks.LinguisticTrees.models.tree_embedding import TreeEmbeddingNet
     from Tree_Matching_Networks.LinguisticTrees.models.bert_embedding import BertEmbeddingNet
     from Tree_Matching_Networks.LinguisticTrees.models.bert_matching import BertMatchingNet
+    from Tree_Matching_Networks.LinguisticTrees.models.pretrained_text_embedding import PretrainedTextEmbeddingNet
+    from Tree_Matching_Networks.LinguisticTrees.models.pretrained_text_matching import PretrainedTextMatchingNet
+    from Tree_Matching_Networks.LinguisticTrees.models.pretrained_tree_embedding import PretrainedTreeEmbeddingNet
+    from Tree_Matching_Networks.LinguisticTrees.models.pretrained_tree_matching import PretrainedTreeMatchingNet
+    from Tree_Matching_Networks.LinguisticTrees.models.pretrained_noprop_embedding import PretrainedNoPropEmbeddingNet
+    from Tree_Matching_Networks.LinguisticTrees.models.pretrained_noprop_matching import PretrainedNoPropMatchingNet
     from Tree_Matching_Networks.LinguisticTrees.training.experiment import ExperimentManager
     from Tree_Matching_Networks.LinguisticTrees.training.train import train_epoch
     from Tree_Matching_Networks.LinguisticTrees.training.validation import validate_epoch
@@ -239,42 +251,113 @@ def train_unified(args):
 
 
     logger.info(f"Initializing model (text_mode: {text_mode})")
-    
+
+    model_name = config['model'].get('name', '')
     model_type = config['model'].get('model_type', 'matching')
-    if text_mode:
+
+    if model_name == 'pretrained_text':
+        # Condition A: pretrained HF on text
         from transformers import AutoTokenizer
-        
+        hf_model_name = config['model']['pretrained']['model_name']
+        logger.info(f"Loading pretrained text model: {hf_model_name}")
+        tokenizer = AutoTokenizer.from_pretrained(hf_model_name)
+        if model_type == 'embedding':
+            model = PretrainedTextEmbeddingNet(config, tokenizer).to(config['device'])
+        else:
+            model = PretrainedTextMatchingNet(config, tokenizer).to(config['device'])
+        config['model_name'] = 'bert'
+
+    elif model_name == 'pretrained_noprop':
+        # Condition B: pretrained HF on raw node features
+        logger.info("Loading pretrained no-propagation model")
+        if model_type == 'embedding':
+            model = PretrainedNoPropEmbeddingNet(config).to(config['device'])
+        else:
+            model = PretrainedNoPropMatchingNet(config).to(config['device'])
+        config['model_name'] = 'graph'
+
+    elif model_name == 'pretrained_tree':
+        # Conditions D, E, F: GNN + pretrained HF aggregator
+        logger.info("Loading pretrained tree model")
+        if model_type == 'embedding':
+            model = PretrainedTreeEmbeddingNet(config).to(config['device'])
+        else:
+            model = PretrainedTreeMatchingNet(config).to(config['device'])
+        config['model_name'] = 'graph'
+
+        # Apply freeze config
+        freeze_config = config['model'].get('freeze', {})
+        if freeze_config.get('freeze_propagation', False):
+            model.freeze_propagation()
+            logger.info("Froze GNN propagation layers (Condition F)")
+        if freeze_config.get('freeze_transformer', False):
+            model.freeze_transformer()
+            logger.info("Froze pretrained transformer (Condition E)")
+
+    elif text_mode:
+        from transformers import AutoTokenizer
+
         tokenizer_path = config['model']['bert'].get('tokenizer_path', 'bert-base-uncased')
         logger.info(f"Loading tokenizer from {tokenizer_path}")
         tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
         if model_type == 'embedding':
-            model = BertEmbeddingNet(config, tokenizer).to(config['device']) 
+            model = BertEmbeddingNet(config, tokenizer).to(config['device'])
         else:
             model = BertMatchingNet(config, tokenizer).to(config['device'])
         config['model_name'] = 'bert'
 
-        
     else:
         logger.info(f"Creating {model_type} graph model")
-        
+
         if model_type == 'embedding':
             model = TreeEmbeddingNet(config).to(config['device'])
         else:
             model = TreeMatchingNet(config).to(config['device'])
         config['model_name'] = 'graph'
-    
+
     logger.info("Initializing optimizer")
-    optimizer = torch.optim.Adam(
-        model.parameters(),
-        lr=config['train']['learning_rate'],
-        weight_decay=config['train']['weight_decay']
-    )
-    
+    base_lr = config['train']['learning_rate']
+    pretrained_lr_scale = config['train'].get('pretrained_lr_scale', 1.0)
+
+    if hasattr(model, 'get_parameter_groups'):
+        param_groups = model.get_parameter_groups(base_lr, pretrained_lr_scale)
+        optimizer = torch.optim.Adam(
+            param_groups,
+            weight_decay=config['train']['weight_decay']
+        )
+        logger.info(f"Optimizer: {len(param_groups)} param groups, pretrained_lr_scale={pretrained_lr_scale}")
+    else:
+        optimizer = torch.optim.Adam(
+            filter(lambda p: p.requires_grad, model.parameters()),
+            lr=base_lr,
+            weight_decay=config['train']['weight_decay']
+        )
+
     if args.resume:
         logger.info("Loading model and optimizer state from checkpoint")
-        model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        
+        strict_load = config['model'].get('strict_checkpoint_load', True)
+        missing, unexpected = model.load_state_dict(
+            checkpoint['model_state_dict'], strict=strict_load
+        )
+        if missing:
+            logger.info(f"Missing keys (expected for pretrained components): {len(missing)} keys")
+            for key in missing[:5]:
+                logger.info(f"  Missing: {key}")
+            if len(missing) > 5:
+                logger.info(f"  ... and {len(missing) - 5} more")
+        if unexpected:
+            logger.info(f"Unexpected keys (from previous aggregator): {len(unexpected)} keys")
+            for key in unexpected[:5]:
+                logger.info(f"  Unexpected: {key}")
+            if len(unexpected) > 5:
+                logger.info(f"  ... and {len(unexpected) - 5} more")
+
+        # Only load optimizer state if checkpoint architecture matches
+        if not missing and not unexpected:
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        else:
+            logger.info("Skipping optimizer state load due to architecture mismatch")
+
         # Log best metrics from checkpoint
         if 'best_metrics' in checkpoint:
             for k, v in checkpoint['best_metrics'].items():
