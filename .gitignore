@@ -193,3 +193,5 @@ SWEEP_READY_CHECKLIST.md
 evaluation_results/
 launch_contrastive_sweep.sh
 scripts/count_transformer_parameters.py
+docs/plans/*
+docs/plans/
