@@ -188,13 +188,62 @@ class PretrainedTransformerAggregator(nn.Module):
         return batched, padding_mask
 
     def _compute_cls_positional_encoding(self, device):
-        """Compute positional encoding for virtual CLS token (virtual root)."""
-        return self.pos_encoder.compute_single_node_encoding(
-            depth=0, num_siblings=0, num_children=1,
-            num_grandparent_children=0, subtree_size=1,
-            parent_num_children=0, distance_to_leaf=0,
-            nodes_at_level=1, device=device
-        )
+        """
+        Compute positional encoding for virtual CLS token.
+
+        The CLS token gets a special "virtual root" encoding:
+        - depth = 0 (root-like)
+        - num_siblings = 0 (no siblings)
+        - num_children = 0 (no children)
+        - num_grandparent_children = 0
+        - subtree_size = 1 (just itself, distinguishes from real root)
+        - parent_num_children = 0 (no parent)
+        - distance_to_leaf = 0 (is its own leaf, distinguishes from real root)
+        - nodes_at_level = 1 (only CLS at its level)
+
+        Returns:
+            cls_pos_encoding: [1, 1, hf_hidden_data]
+        """
+        # Create feature values for CLS (all zeros except subtree_size=1)
+        feature_values = {
+            'depth': torch.tensor([0], dtype=torch.long, device=device),
+            'num_siblings': torch.tensor([0], dtype=torch.long, device=device),
+            'num_children': torch.tensor([0], dtype=torch.long, device=device),
+            'num_grandparent_children': torch.tensor([0], dtype=torch.long, device=device),
+            'subtree_size': torch.tensor([1], dtype=torch.long, device=device),
+            'parent_num_children': torch.tensor([0], dtype=torch.long, device=device),
+            'distance_to_leaf': torch.tensor([0], dtype=torch.long, device=device),
+            'nodes_at_level': torch.tensor([1], dtype=torch.long, device=device),
+        }
+
+        # Build positional encoding using the same logic as TreeShapePositionalEncoder
+        pos_encoding = torch.zeros(1, self.hf_hidden_data, device=device)
+
+        for feature_name in self.pos_encoder.features:
+            start_dim, end_dim = self.pos_encoder.feature_dims[feature_name]
+            values = feature_values.get(feature_name, torch.tensor([0], device=device))
+
+            if self.pos_encoder.learned:
+                # Use learned embedding lookup
+                clamped_values = values.clamp(0, self.pos_encoder.max_values[feature_name])
+                feature_enc = self.pos_encoder.feature_embeddings[feature_name](clamped_values)
+            else:
+                # Compute sinusoidal encoding
+                feature_dim = end_dim - start_dim
+                feature_enc = self.pos_encoder._sinusoidal_encoding(
+                    values, feature_dim, self.pos_encoder.max_values[feature_name]
+                )
+
+            pos_encoding[:, start_dim:end_dim] = feature_enc
+
+        return pos_encoding.unsqueeze(0)  # [1, 1, hidden_dim]
+        # """Compute positional encoding for virtual CLS token (virtual root)."""
+        # return self.pos_encoder.compute_single_node_encoding(
+        #     depth=0, num_siblings=0, num_children=1,
+        #     num_grandparent_children=0, subtree_size=1,
+        #     parent_num_children=0, distance_to_leaf=0,
+        #     nodes_at_level=1, device=device
+        # )
 
     def _aggregate_nodes(self, attended_nodes, padding_mask):
         """Mean pooling over non-padded positions."""
