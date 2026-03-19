@@ -202,7 +202,7 @@ class PretrainedTransformerAggregator(nn.Module):
         - nodes_at_level = 1 (only CLS at its level)
 
         Returns:
-            cls_pos_encoding: [1, 1, hf_hidden_data]
+            cls_pos_encoding: [1, 1, hf_hidden_dim]
         """
         # Create feature values for CLS (all zeros except subtree_size=1)
         feature_values = {
@@ -217,7 +217,7 @@ class PretrainedTransformerAggregator(nn.Module):
         }
 
         # Build positional encoding using the same logic as TreeShapePositionalEncoder
-        pos_encoding = torch.zeros(1, self.hf_hidden_data, device=device)
+        pos_encoding = torch.zeros(1, self.hf_hidden_dim, device=device)
 
         for feature_name in self.pos_encoder.features:
             start_dim, end_dim = self.pos_encoder.feature_dims[feature_name]
