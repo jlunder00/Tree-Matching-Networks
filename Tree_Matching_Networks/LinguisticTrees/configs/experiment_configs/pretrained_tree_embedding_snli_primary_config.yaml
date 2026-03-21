@@ -5,22 +5,19 @@ model:
   task_loader_type: aggregative
   name: pretrained_tree_embedding
   model_type: embedding
+  strict_checkpoint_load: false
   graph:
     node_feature_dim: 804
     edge_feature_dim: 70
-    node_state_dim: 1280
-    edge_state_dim: 512
-    hidden_size_multiplier: 2.0
+    node_state_dim: 1024
+    edge_state_dim: 256
     edge_hidden_sizes:
     - 512
-    - 1024
     node_hidden_sizes:
-    - 1280
-    - 1280
-    graph_rep_dim: 2048
+    - 1024
+    graph_rep_dim: 1792
     graph_transform_sizes:
-    - 1280
-    - 2048
+    - 1024
     edge_net_init_scale: 0.1
     reverse_dir_param_different: false
     use_reverse_direction: true
@@ -92,6 +89,6 @@ wandb:
   - snli
   - primary
   - pretrained_tree
-  - prop_heavy
+  - medium_19m
   log_interval: 10
   memory_logging: true
