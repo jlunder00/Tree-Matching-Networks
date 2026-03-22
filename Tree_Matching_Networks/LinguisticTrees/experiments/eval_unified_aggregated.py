@@ -25,6 +25,12 @@ try:
     from ..models.tree_embedding import TreeEmbeddingNet
     from ..models.bert_matching import BertMatchingNet
     from ..models.bert_embedding import BertEmbeddingNet
+    from ..models.pretrained_text_embedding import PretrainedTextEmbeddingNet
+    from ..models.pretrained_text_matching import PretrainedTextMatchingNet
+    from ..models.pretrained_tree_embedding import PretrainedTreeEmbeddingNet
+    from ..models.pretrained_tree_matching import PretrainedTreeMatchingNet
+    from ..models.pretrained_noprop_embedding import PretrainedNoPropEmbeddingNet
+    from ..models.pretrained_noprop_matching import PretrainedNoPropMatchingNet
     from ..training.experiment import ExperimentManager
     from ..data.paired_groups_dataset import create_paired_groups_dataset, get_paired_groups_dataloader
     from ..training.loss_handlers import LOSS_HANDLERS
@@ -36,6 +42,12 @@ except:
     from Tree_Matching_Networks.LinguisticTrees.models.tree_embedding import TreeEmbeddingNet
     from Tree_Matching_Networks.LinguisticTrees.models.bert_matching import BertMatchingNet
     from Tree_Matching_Networks.LinguisticTrees.models.bert_embedding import BertEmbeddingNet
+    from Tree_Matching_Networks.LinguisticTrees.models.pretrained_text_embedding import PretrainedTextEmbeddingNet
+    from Tree_Matching_Networks.LinguisticTrees.models.pretrained_text_matching import PretrainedTextMatchingNet
+    from Tree_Matching_Networks.LinguisticTrees.models.pretrained_tree_embedding import PretrainedTreeEmbeddingNet
+    from Tree_Matching_Networks.LinguisticTrees.models.pretrained_tree_matching import PretrainedTreeMatchingNet
+    from Tree_Matching_Networks.LinguisticTrees.models.pretrained_noprop_embedding import PretrainedNoPropEmbeddingNet
+    from Tree_Matching_Networks.LinguisticTrees.models.pretrained_noprop_matching import PretrainedNoPropMatchingNet
     from Tree_Matching_Networks.LinguisticTrees.training.experiment import ExperimentManager
     from Tree_Matching_Networks.LinguisticTrees.data.paired_groups_dataset import create_paired_groups_dataset, get_paired_groups_dataloader
     from Tree_Matching_Networks.LinguisticTrees.training.loss_handlers import LOSS_HANDLERS
@@ -57,29 +69,61 @@ def load_model_from_checkpoint(checkpoint_path, base_config=None, override_confi
     
     # Determine model type based on config
     is_text_mode = config.get('text_mode', False)
+    model_name = config['model'].get('name', '')
     model_type = config['model'].get('model_type', 'matching')
-    
-    if is_text_mode:
-        # Load BERT model
+    strict_load = config['model'].get('strict_checkpoint_load', True)
+    tokenizer = None
+    is_bert = False
+
+    if model_name == 'pretrained_text':
+        # Condition A: pretrained HF on text tokens
+        hf_model_name = config['model']['pretrained']['model_name']
+        tokenizer = AutoTokenizer.from_pretrained(hf_model_name)
+        if model_type == 'embedding':
+            model = PretrainedTextEmbeddingNet(config, tokenizer)
+        else:
+            model = PretrainedTextMatchingNet(config, tokenizer)
+        is_bert = True
+
+    elif model_name == 'pretrained_noprop':
+        # Condition B/C: pretrained HF on raw node features, no GNN
+        if model_type == 'embedding':
+            model = PretrainedNoPropEmbeddingNet(config)
+        else:
+            model = PretrainedNoPropMatchingNet(config)
+
+    elif model_name == 'pretrained_tree':
+        # Conditions D/E/F/G: GNN + pretrained HF aggregator
+        if model_type == 'embedding':
+            model = PretrainedTreeEmbeddingNet(config)
+        else:
+            model = PretrainedTreeMatchingNet(config)
+        # Re-apply freeze config so frozen params stay frozen during eval
+        freeze_config = config['model'].get('freeze', {})
+        if freeze_config.get('freeze_propagation', False):
+            model.freeze_propagation()
+        if freeze_config.get('freeze_transformer', False):
+            model.freeze_transformer()
+
+    elif is_text_mode:
+        # Legacy BERT models
         tokenizer_path = config['model']['bert'].get('tokenizer_path', 'bert-base-uncased')
         tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
-        
         if model_type == 'embedding':
             model = BertEmbeddingNet(config, tokenizer)
         else:
             model = BertMatchingNet(config, tokenizer)
-            
-        model.load_state_dict(checkpoint['model_state_dict'])
-        return model, config, checkpoint.get('epoch', 0), tokenizer, True
+        is_bert = True
+
     else:
-        # Load tree model
+        # Standard tree models (TMN/TTN)
         if model_type == 'embedding':
             model = TreeEmbeddingNet(config)
         else:
             model = TreeMatchingNet(config)
-            
-        model.load_state_dict(checkpoint['model_state_dict'])
-        return model, config, checkpoint.get('epoch', 0), None, False
+
+    model.load_state_dict(checkpoint['model_state_dict'], strict=strict_load)
+    return model, config, checkpoint.get('epoch', 0), tokenizer, is_bert
 
 def compute_metrics(predictions, labels, task_type):
     """Compute evaluation metrics based on task type"""
@@ -393,7 +437,7 @@ def main():
         label_norm=label_norm,
         text_mode=is_bert_model,  # Use text mode for BERT models
         tokenizer=tokenizer if is_bert_model else None,
-        max_length=config['model']['bert'].get('max_position_embeddings', 512) if is_bert_model else 512,
+        max_length=config['model'].get('bert', {}).get('max_position_embeddings', 512) if is_bert_model else 512,
         allow_text_files=False
     )
     
